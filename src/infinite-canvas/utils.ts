@@ -1,49 +1,26 @@
 import * as THREE from "three";
+import { hashString, seededRandom } from "~/src/utils";
 import { CHUNK_SIZE, ITEMS_PER_CHUNK } from "./constants";
 import type { PlaneData } from "./types";
 
-// Seeded random for deterministic generation
-export const seededRandom = (seed: number): number => {
-  const x = Math.sin(seed * 9999) * 10000;
-  return x - Math.floor(x);
+const MAX_PLANE_CACHE = 256;
+const planeCache = new Map<string, PlaneData[]>();
+
+const touchPlaneCache = (key: string) => {
+  const v = planeCache.get(key);
+  if (!v) return;
+  planeCache.delete(key);
+  planeCache.set(key, v);
 };
 
-export const hashString = (str: string): number => {
-  let h = 0;
-
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+const evictPlaneCache = () => {
+  while (planeCache.size > MAX_PLANE_CACHE) {
+    const firstKey = planeCache.keys().next().value as string | undefined;
+    if (!firstKey) break;
+    planeCache.delete(firstKey);
   }
-
-  return Math.abs(h);
 };
 
-export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(max, v));
-
-export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-
-/**
- * Checks if enough time has passed since the last update for throttling.
- * @param lastUpdateTime - The last update time (from a ref)
- * @param throttleMs - Minimum milliseconds between updates
- * @param currentTime - Current time (usually performance.now())
- * @returns true if the throttle allows an update, false otherwise
- */
-export const shouldThrottleUpdate = (
-  lastUpdateTime: number,
-  throttleMs: number,
-  currentTime: number
-): boolean => {
-  return currentTime - lastUpdateTime >= throttleMs;
-};
-
-/**
- * Calculates throttle duration based on zoom state.
- * More aggressive throttling during rapid zoom to prevent lag.
- * @param isZooming - Whether the camera is currently zooming
- * @param zoomSpeed - Current zoom velocity magnitude
- * @returns Throttle duration in milliseconds
- */
 export const getChunkUpdateThrottleMs = (isZooming: boolean, zoomSpeed: number): number => {
   const isVeryFastZoom = zoomSpeed > 1.0;
   if (isVeryFastZoom) return 500;
@@ -51,25 +28,13 @@ export const getChunkUpdateThrottleMs = (isZooming: boolean, zoomSpeed: number):
   return 100;
 };
 
-export const getMediaDimensions = (media: HTMLImageElement | HTMLVideoElement | undefined) => {
-  const width =
-    media instanceof HTMLVideoElement
-      ? media.videoWidth
-      : media instanceof HTMLImageElement
-        ? media.naturalWidth || media.width
-        : undefined;
-
-  const height =
-    media instanceof HTMLVideoElement
-      ? media.videoHeight
-      : media instanceof HTMLImageElement
-        ? media.naturalHeight || media.height
-        : undefined;
+export const getMediaDimensions = (media: HTMLImageElement | undefined) => {
+  const width = media instanceof HTMLImageElement ? media.naturalWidth || media.width : undefined;
+  const height = media instanceof HTMLImageElement ? media.naturalHeight || media.height : undefined;
 
   return { width, height };
 };
 
-// Generate planes for a chunk
 export const generateChunkPlanes = (cx: number, cy: number, cz: number): PlaneData[] => {
   const planes: PlaneData[] = [];
   const seed = hashString(`${cx},${cy},${cz}`);
@@ -88,11 +53,27 @@ export const generateChunkPlanes = (cx: number, cy: number, cz: number): PlaneDa
         cz * CHUNK_SIZE + r(2) * CHUNK_SIZE
       ),
       scale: new THREE.Vector3(size, size, 1),
-      // Assign a stable, large random index.
-      // The Scene component will modulo this by the actual media length.
-      mediaIndex: Math.floor(r(5) * 1000000),
+      mediaIndex: Math.floor(r(5) * 1_000_000),
     });
   }
 
   return planes;
+};
+
+export const generateChunkPlanesCached = (cx: number, cy: number, cz: number): PlaneData[] => {
+  const key = `${cx},${cy},${cz}`;
+  const cached = planeCache.get(key);
+  if (cached) {
+    touchPlaneCache(key);
+    return cached;
+  }
+
+  const planes = generateChunkPlanes(cx, cy, cz);
+  planeCache.set(key, planes);
+  evictPlaneCache();
+  return planes;
+};
+
+export const shouldThrottleUpdate = (lastUpdateTime: number, throttleMs: number, currentTime: number): boolean => {
+  return currentTime - lastUpdateTime >= throttleMs;
 };

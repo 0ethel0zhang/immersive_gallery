@@ -6,8 +6,8 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Theme Colors */
-  --color-background: #d6c8ad;
-  --color-loader-bg: #d6c8ad;
+  --color-background: #ffffff;
+  --color-loader-bg: #ffffff;
   --color-loader-bar-bg: rgba(101, 82, 60, 0.1);
   --color-loader-bar-fill: rgb(101, 82, 60);
 }

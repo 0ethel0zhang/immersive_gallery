@@ -2,7 +2,7 @@ import type * as THREE from "three";
 
 export type MediaItem = {
   url: string;
-  type: "image" | "video";
+  type: "image";
   title?: string;
   artist?: string;
   year?: string;
@@ -14,6 +14,16 @@ export type MediaItem = {
 export type InfiniteCanvasProps = {
   media: MediaItem[];
   onReady?: () => void;
+  onTextureProgress?: (progress: number) => void;
+  showFps?: boolean;
+  showControls?: boolean;
+  cameraFov?: number;
+  cameraNear?: number;
+  cameraFar?: number;
+  fogNear?: number;
+  fogFar?: number;
+  backgroundColor?: string;
+  fogColor?: string;
 };
 
 export type ChunkData = {

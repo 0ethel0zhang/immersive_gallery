@@ -1,24 +1,39 @@
-import { useProgress } from "@react-three/drei";
 import * as React from "react";
 import { fetchArticArtworks } from "~/src/api";
 import { InfiniteCanvas } from "~/src/infinite-canvas";
 import type { MediaItem } from "~/src/infinite-canvas/types";
-import { PageLoader } from "~/src/page-loader";
+import { PageLoader } from "~/src/loader";
+import { run } from "~/src/utils";
+import styles from "./style.module.css";
+
+const EXPECTED_ARTWORKS = 200; // Minimum expected artworks
 
 export function App() {
   const [media, setMedia] = React.useState<MediaItem[]>([]);
   const [dataLoading, setDataLoading] = React.useState(true);
   const [canvasReady, setCanvasReady] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [fetchProgress, setFetchProgress] = React.useState(0);
-  const { active, progress: textureProgress } = useProgress();
+  const [textureProgress, setTextureProgress] = React.useState(0);
+  const maxProgressRef = React.useRef(0);
 
-  const totalProgress = React.useMemo(() => {
-    if (dataLoading) return fetchProgress * 0.4;
-    if (canvasReady) return 100;
-    if (!active && textureProgress === 0) return 40;
-    return 40 + textureProgress * 0.6;
-  }, [dataLoading, fetchProgress, textureProgress, active, canvasReady]);
+  const totalProgress = run(() => {
+    let currentProgress = 0;
+
+    if (dataLoading) {
+      const fetchedCount = Math.max(media.length, 1);
+      currentProgress = Math.min((fetchedCount / EXPECTED_ARTWORKS) * 30, 30);
+    } else if (canvasReady) {
+      currentProgress = 100;
+    } else {
+      currentProgress = 30 + textureProgress * 0.7;
+    }
+
+    if (currentProgress > maxProgressRef.current) {
+      maxProgressRef.current = currentProgress;
+    }
+
+    return maxProgressRef.current;
+  });
 
   React.useEffect(() => {
     let mounted = true;
@@ -27,16 +42,14 @@ export function App() {
     const fetchAll = async () => {
       try {
         const batchSize = 50;
-        const maxItems = 250; // consumer controls this
+        const maxItems = 250;
 
-        // Fetch pages until we reach maxItems (or the API stops returning results)
         let page = 1;
         let allArtworks: MediaItem[] = [];
 
         while (mounted && allArtworks.length < maxItems) {
           console.log(`[${fetchId}] Fetching page ${page} (batchSize=${batchSize})...`);
 
-          // fetcher does NOT decide max, consumer does
           const batch = await fetchArticArtworks(page, batchSize);
 
           if (!mounted) break;
@@ -45,13 +58,9 @@ export function App() {
 
           allArtworks.push(...batch);
 
-          // Hard cap
           if (allArtworks.length > maxItems) {
             allArtworks = allArtworks.slice(0, maxItems);
           }
-
-          // Progress is based on target maxItems (not on unknown API totals)
-          setFetchProgress(Math.min(100, (allArtworks.length / maxItems) * 100));
 
           page += 1;
         }
@@ -79,25 +88,19 @@ export function App() {
     };
   }, []);
 
-  const handleCanvasReady = React.useCallback(() => {
+  const handleCanvasReady = () => {
     setCanvasReady(true);
-  }, []);
+  };
+
+  const handleTextureProgress = (progress: number) => {
+    setTextureProgress(progress);
+  };
 
   if (error) {
     return (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "100vh",
-          fontFamily: "sans-serif",
-          flexDirection: "column",
-          gap: "1rem",
-        }}
-      >
-        <div style={{ color: "red" }}>{error}</div>
-        <button type="button" onClick={() => window.location.reload()} style={{ padding: "8px 16px", cursor: "pointer" }}>
+      <div className={styles.errorContainer}>
+        <div className={styles.errorMessage}>{error}</div>
+        <button type="button" onClick={() => window.location.reload()} className={styles.retryButton}>
           Retry
         </button>
       </div>
@@ -107,7 +110,15 @@ export function App() {
   return (
     <>
       <PageLoader progress={totalProgress} />
-      {media.length > 0 && <InfiniteCanvas media={media} onReady={handleCanvasReady} />}
+      {media.length > 0 && (
+        <InfiniteCanvas
+          media={media}
+          onReady={handleCanvasReady}
+          onTextureProgress={handleTextureProgress}
+          showControls
+          showFps
+        />
+      )}
     </>
   );
 }
