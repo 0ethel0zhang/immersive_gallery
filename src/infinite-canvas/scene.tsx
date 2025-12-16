@@ -1,4 +1,4 @@
-import { useProgress } from "@react-three/drei";
+import { KeyboardControls, Stats, useKeyboardControls, useProgress } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
@@ -24,6 +24,26 @@ import type { ChunkData, InfiniteCanvasProps, MediaItem, PlaneData } from "./typ
 import { generateChunkPlanesCached, getChunkUpdateThrottleMs, getMediaDimensions, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
+
+const KEYBOARD_MAP = [
+  { name: "forward", keys: ["w", "W", "ArrowUp"] },
+  { name: "backward", keys: ["s", "S", "ArrowDown"] },
+  { name: "left", keys: ["a", "A", "ArrowLeft"] },
+  { name: "right", keys: ["d", "D", "ArrowRight"] },
+  { name: "up", keys: ["e", "E"] },
+  { name: "down", keys: ["q", "Q"] },
+  { name: "fast", keys: [" "] },
+];
+
+type KeyboardKeys = {
+  forward: boolean;
+  backward: boolean;
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  fast: boolean;
+};
 
 const getTouchDistance = (touches: Touch[]) => {
   if (touches.length < 2) return 0;
@@ -77,7 +97,6 @@ function MediaPlane({
     const dist = Math.max(Math.abs(chunkCx - cam.cx), Math.abs(chunkCy - cam.cy), Math.abs(chunkCz - cam.cz));
     const absDepth = Math.abs(position.z - cam.camZ);
 
-    // Early exit for far-away planes
     if (absDepth > DEPTH_FADE_END + 50) {
       state.opacity = 0;
       material.opacity = 0;
@@ -239,15 +258,12 @@ type ControllerState = {
   mouse: { x: number; y: number };
   lastMouse: { x: number; y: number };
   scrollAccum: number;
-  keys: Set<string>;
   isDragging: boolean;
   lastTouches: Touch[];
   lastTouchDist: number;
   lastChunkKey: string;
   lastChunkUpdate: number;
   pendingChunk: { cx: number; cy: number; cz: number } | null;
-  fpsFrames: number;
-  fpsTime: number;
 };
 
 const createInitialState = (camZ: number): ControllerState => ({
@@ -258,30 +274,26 @@ const createInitialState = (camZ: number): ControllerState => ({
   mouse: { x: 0, y: 0 },
   lastMouse: { x: 0, y: 0 },
   scrollAccum: 0,
-  keys: new Set(),
   isDragging: false,
   lastTouches: [],
   lastTouchDist: 0,
   lastChunkKey: "",
   lastChunkUpdate: 0,
   pendingChunk: null,
-  fpsFrames: 0,
-  fpsTime: performance.now(),
 });
 
 function SceneController({
   media,
-  onFpsUpdate,
   onReady,
   onTextureProgress,
 }: {
   media: MediaItem[];
-  onFpsUpdate?: (fps: number) => void;
   onReady?: () => void;
   onTextureProgress?: (progress: number) => void;
 }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
+  const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
@@ -317,6 +329,7 @@ function SceneController({
     }
   }, [chunks, onReady, active, progress]);
 
+  // Mouse, touch, and wheel handlers (keyboard now handled by drei)
   React.useEffect(() => {
     const canvas = gl.domElement;
     const s = state.current;
@@ -325,12 +338,6 @@ function SceneController({
     const setCursor = (cursor: string) => {
       canvas.style.cursor = cursor;
     };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      s.keys.add(e.key.toLowerCase());
-      if (e.key === " ") e.preventDefault();
-    };
-    const onKeyUp = (e: KeyboardEvent) => s.keys.delete(e.key.toLowerCase());
 
     const onMouseDown = (e: MouseEvent) => {
       s.isDragging = true;
@@ -399,8 +406,6 @@ function SceneController({
       setCursor("grab");
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
     canvas.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("mousemove", onMouseMove);
@@ -411,8 +416,6 @@ function SceneController({
     canvas.addEventListener("touchend", onTouchEnd, { passive: false });
 
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
       canvas.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("mousemove", onMouseMove);
@@ -428,25 +431,17 @@ function SceneController({
     const s = state.current;
     const now = performance.now();
 
-    // FPS counter
-    s.fpsFrames++;
-    if (now - s.fpsTime >= 400) {
-      onFpsUpdate?.(Math.round(s.fpsFrames / ((now - s.fpsTime) / 1000)));
-      s.fpsFrames = 0;
-      s.fpsTime = now;
-    }
+    // Keyboard input via drei
+    const { forward, backward, left, right, up, down, fast } = getKeys();
+    if (forward) s.targetVel.z -= KEYBOARD_SPEED;
+    if (backward) s.targetVel.z += KEYBOARD_SPEED;
+    if (left) s.targetVel.x -= KEYBOARD_SPEED;
+    if (right) s.targetVel.x += KEYBOARD_SPEED;
+    if (down) s.targetVel.y -= KEYBOARD_SPEED;
+    if (up) s.targetVel.y += KEYBOARD_SPEED;
+    if (fast) s.targetVel.z -= KEYBOARD_SPEED * 1.5;
 
-    // Keyboard input
-    const k = s.keys;
-    if (k.has("w") || k.has("arrowup")) s.targetVel.z -= KEYBOARD_SPEED;
-    if (k.has("s") || k.has("arrowdown")) s.targetVel.z += KEYBOARD_SPEED;
-    if (k.has("a") || k.has("arrowleft")) s.targetVel.x -= KEYBOARD_SPEED;
-    if (k.has("d") || k.has("arrowright")) s.targetVel.x += KEYBOARD_SPEED;
-    if (k.has("q")) s.targetVel.y -= KEYBOARD_SPEED;
-    if (k.has("e")) s.targetVel.y += KEYBOARD_SPEED;
-    if (k.has(" ")) s.targetVel.z -= KEYBOARD_SPEED * 1.5;
-
-    // Drift calculation (ZOOMING_THRESHOLD = 0.05)
+    // Drift calculation
     const isZooming = Math.abs(s.velocity.z) > 0.05;
     const zoomFactor = clamp(s.basePos.z / 50, 0.3, 2.0);
     const driftAmount = 8.0 * zoomFactor;
@@ -538,7 +533,7 @@ export function InfiniteCanvasScene({
   media,
   onReady,
   onTextureProgress,
-  showFps = false,
+  showFps = true,
   showControls = true,
   cameraFov = 60,
   cameraNear = 1,
@@ -548,45 +543,40 @@ export function InfiniteCanvasScene({
   backgroundColor = "#ffffff",
   fogColor = "#ffffff",
 }: InfiniteCanvasProps) {
-  const [fps, setFps] = React.useState(0);
   const isTouchDevice = useIsTouchDevice();
-
   const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice ? 1.25 : 1.5);
 
   if (!media.length) return null;
 
   return (
-    <div className={styles.container}>
-      <Canvas
-        camera={{ position: [0, 0, INITIAL_CAMERA_Z], fov: cameraFov, near: cameraNear, far: cameraFar }}
-        dpr={dpr}
-        gl={{ antialias: false, powerPreference: "high-performance" }}
-        className={styles.canvas}
-      >
-        <color attach="background" args={[backgroundColor]} />
-        <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
-        <SceneController media={media} onFpsUpdate={setFps} onReady={onReady} onTextureProgress={onTextureProgress} />
-      </Canvas>
+    <KeyboardControls map={KEYBOARD_MAP}>
+      <div className={styles.container}>
+        <Canvas
+          camera={{ position: [0, 0, INITIAL_CAMERA_Z], fov: cameraFov, near: cameraNear, far: cameraFar }}
+          dpr={dpr}
+          gl={{ antialias: false, powerPreference: "high-performance" }}
+          className={styles.canvas}
+        >
+          <color attach="background" args={[backgroundColor]} />
+          <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
+          <SceneController media={media} onReady={onReady} onTextureProgress={onTextureProgress} />
+          {showFps && <Stats className={styles.stats} />}
+        </Canvas>
 
-      {showFps && (
-        <div className={styles.infoPanel}>
-          <b>{fps} FPS</b> | {media.length} Artworks
-        </div>
-      )}
-
-      {showControls && (
-        <div className={styles.controlsPanel}>
-          {isTouchDevice ? (
-            <>
-              <b>Drag</b> Pan · <b>Pinch</b> Zoom
-            </>
-          ) : (
-            <>
-              <b>WASD</b> Move · <b>QE</b> Up/Down · <b>Scroll</b> Zoom
-            </>
-          )}
-        </div>
-      )}
-    </div>
+        {showControls && (
+          <div className={styles.controlsPanel}>
+            {isTouchDevice ? (
+              <>
+                <b>Drag</b> Pan · <b>Pinch</b> Zoom
+              </>
+            ) : (
+              <>
+                <b>WASD</b> Move · <b>QE</b> Up/Down · <b>Scroll</b> Zoom
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </KeyboardControls>
   );
 }
