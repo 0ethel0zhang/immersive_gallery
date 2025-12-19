@@ -514,7 +514,7 @@ export function InfiniteCanvasScene({
   onReady,
   onTextureProgress,
   showFps = false,
-  showControls = true,
+  showControls = false,
   cameraFov = 60,
   cameraNear = 1,
   cameraFar = 500,

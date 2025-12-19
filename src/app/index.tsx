@@ -22,13 +22,7 @@ export function App() {
   return (
     <>
       <PageLoader progress={progress} />
-      <InfiniteCanvas
-        media={media}
-        onReady={() => setCanvasReady(true)}
-        onTextureProgress={setTextureProgress}
-        showControls
-        showFps
-      />
+      <InfiniteCanvas media={media} onReady={() => setCanvasReady(true)} onTextureProgress={setTextureProgress} />
     </>
   );
 }
