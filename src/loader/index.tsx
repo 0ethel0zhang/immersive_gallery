@@ -41,7 +41,9 @@ export function PageLoader({ progress }: { progress: number }) {
     }
   }, [minTimeElapsed, progress, visualProgress]);
 
-  if (!show) return null;
+  if (!show) {
+    return null;
+  }
 
   const isHidden = minTimeElapsed && progress === 100 && visualProgress >= 99.5;
 

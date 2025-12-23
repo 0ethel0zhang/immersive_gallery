@@ -8,7 +8,10 @@ const planeCache = new Map<string, PlaneData[]>();
 
 const touchPlaneCache = (key: string) => {
   const v = planeCache.get(key);
-  if (!v) return;
+  if (!v) {
+    return;
+  }
+
   planeCache.delete(key);
   planeCache.set(key, v);
 };
@@ -22,8 +25,14 @@ const evictPlaneCache = () => {
 };
 
 export const getChunkUpdateThrottleMs = (isZooming: boolean, zoomSpeed: number): number => {
-  if (zoomSpeed > 1.0) return 500;
-  if (isZooming) return 400;
+  if (zoomSpeed > 1.0) {
+    return 500;
+  }
+
+  if (isZooming) {
+    return 400;
+  }
+
   return 100;
 };
 

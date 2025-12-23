@@ -32,7 +32,6 @@ const KEYBOARD_MAP = [
   { name: "right", keys: ["d", "D", "ArrowRight"] },
   { name: "up", keys: ["e", "E"] },
   { name: "down", keys: ["q", "Q"] },
-  { name: "fast", keys: [" "] },
 ];
 
 type KeyboardKeys = {
@@ -42,11 +41,13 @@ type KeyboardKeys = {
   right: boolean;
   up: boolean;
   down: boolean;
-  fast: boolean;
 };
 
 const getTouchDistance = (touches: Touch[]) => {
-  if (touches.length < 2) return 0;
+  if (touches.length < 2) {
+    return 0;
+  }
+
   const [t1, t2] = touches;
   const dx = t1.clientX - t2.clientX;
   const dy = t1.clientY - t2.clientY;
@@ -88,10 +89,16 @@ function MediaPlane({
     const material = materialRef.current;
     const mesh = meshRef.current;
     const state = localState.current;
-    if (!material || !mesh) return;
+
+    if (!material || !mesh) {
+      return;
+    }
 
     state.frame = (state.frame + 1) & 1;
-    if (state.opacity < INVIS_THRESHOLD && !mesh.visible && state.frame === 0) return;
+
+    if (state.opacity < INVIS_THRESHOLD && !mesh.visible && state.frame === 0) {
+      return;
+    }
 
     const cam = cameraGridRef.current;
     const dist = Math.max(Math.abs(chunkCx - cam.cx), Math.abs(chunkCy - cam.cy), Math.abs(chunkCz - cam.cz));
@@ -129,6 +136,7 @@ function MediaPlane({
       const aspect = media.width / media.height;
       return new THREE.Vector3(scale.y * aspect, scale.y, 1);
     }
+
     return scale;
   }, [media.width, media.height, scale]);
 
@@ -140,6 +148,7 @@ function MediaPlane({
     setIsReady(false);
 
     const material = materialRef.current;
+
     if (material) {
       material.opacity = 0;
       material.depthWrite = false;
@@ -159,7 +168,10 @@ function MediaPlane({
     const material = materialRef.current;
     const mesh = meshRef.current;
     const state = localState.current;
-    if (!material || !mesh || !texture || !isReady || !state.ready) return;
+
+    if (!material || !mesh || !texture || !isReady || !state.ready) {
+      return;
+    }
 
     material.map = texture;
     material.opacity = state.opacity;
@@ -167,7 +179,9 @@ function MediaPlane({
     mesh.scale.copy(displayScale);
   }, [displayScale, texture, isReady]);
 
-  if (!texture || !isReady) return null;
+  if (!texture || !isReady) {
+    return null;
+  }
 
   return (
     <mesh ref={meshRef} position={position} scale={displayScale} visible={false} geometry={PLANE_GEOMETRY}>
@@ -197,6 +211,7 @@ function Chunk({
 
     if (typeof requestIdleCallback !== "undefined") {
       const id = requestIdleCallback(run, { timeout: 100 });
+
       return () => {
         canceled = true;
         cancelIdleCallback(id);
@@ -210,13 +225,19 @@ function Chunk({
     };
   }, [cx, cy, cz]);
 
-  if (!planes) return null;
+  if (!planes) {
+    return null;
+  }
 
   return (
     <group>
       {planes.map((plane) => {
         const mediaItem = media[plane.mediaIndex % media.length];
-        if (!mediaItem) return null;
+
+        if (!mediaItem) {
+          return null;
+        }
+
         return (
           <MediaPlane
             key={plane.id}
@@ -281,6 +302,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
 
   React.useEffect(() => {
     const rounded = Math.round(progress);
+
     if (rounded > maxProgress.current) {
       maxProgress.current = rounded;
       onTextureProgress?.(rounded);
@@ -323,6 +345,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
         x: (e.clientX / window.innerWidth) * 2 - 1,
         y: -(e.clientY / window.innerHeight) * 2 + 1,
       };
+
       if (s.isDragging) {
         s.targetVel.x -= (e.clientX - s.lastMouse.x) * 0.025;
         s.targetVel.y += (e.clientY - s.lastMouse.y) * 0.025;
@@ -349,6 +372,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
       if (touches.length === 1 && s.lastTouches.length >= 1) {
         const [touch] = touches;
         const [last] = s.lastTouches;
+
         if (touch && last) {
           s.targetVel.x -= (touch.clientX - last.clientX) * 0.02;
           s.targetVel.y += (touch.clientY - last.clientY) * 0.02;
@@ -393,14 +417,13 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     const s = state.current;
     const now = performance.now();
 
-    const { forward, backward, left, right, up, down, fast } = getKeys();
+    const { forward, backward, left, right, up, down } = getKeys();
     if (forward) s.targetVel.z -= KEYBOARD_SPEED;
     if (backward) s.targetVel.z += KEYBOARD_SPEED;
     if (left) s.targetVel.x -= KEYBOARD_SPEED;
     if (right) s.targetVel.x += KEYBOARD_SPEED;
     if (down) s.targetVel.y -= KEYBOARD_SPEED;
     if (up) s.targetVel.y += KEYBOARD_SPEED;
-    if (fast) s.targetVel.z -= KEYBOARD_SPEED * 1.5;
 
     const isZooming = Math.abs(s.velocity.z) > 0.05;
     const zoomFactor = clamp(s.basePos.z / 50, 0.3, 2.0);
@@ -449,6 +472,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     }
 
     const throttleMs = getChunkUpdateThrottleMs(isZooming, Math.abs(s.velocity.z));
+
     if (s.pendingChunk && shouldThrottleUpdate(s.lastChunkUpdate, throttleMs, now)) {
       const { cx: ucx, cy: ucy, cz: ucz } = s.pendingChunk;
       s.pendingChunk = null;
@@ -504,7 +528,9 @@ export function InfiniteCanvasScene({
   const isTouchDevice = useIsTouchDevice();
   const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice ? 1.25 : 1.5);
 
-  if (!media.length) return null;
+  if (!media.length) {
+    return null;
+  }
 
   return (
     <KeyboardControls map={KEYBOARD_MAP}>
