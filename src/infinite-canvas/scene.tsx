@@ -319,11 +319,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     };
 
     const onMouseDown = (e: MouseEvent) => {
-      // Incorporate current drift into basePos to maintain camera position continuity
-      s.basePos.x += s.drift.x;
-      s.basePos.y += s.drift.y;
-      s.drift.x = 0;
-      s.drift.y = 0;
+      // Just start dragging - keep drift frozen at current value
       s.isDragging = true;
       s.lastMouse = { x: e.clientX, y: e.clientY };
       setCursor("grabbing");
@@ -430,12 +426,14 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     const driftAmount = 8.0 * zoomFactor;
     const driftLerp = isZooming ? 0.2 : 0.12;
 
-    if (!s.isDragging && !isTouchDevice) {
-      s.drift.x = lerp(s.drift.x, s.mouse.x * driftAmount, driftLerp);
-      s.drift.y = lerp(s.drift.y, s.mouse.y * driftAmount, driftLerp);
-    } else {
+    if (s.isDragging) {
+      // Freeze drift during drag - keep it at current value
+    } else if (isTouchDevice) {
       s.drift.x = lerp(s.drift.x, 0, driftLerp);
       s.drift.y = lerp(s.drift.y, 0, driftLerp);
+    } else {
+      s.drift.x = lerp(s.drift.x, s.mouse.x * driftAmount, driftLerp);
+      s.drift.y = lerp(s.drift.y, s.mouse.y * driftAmount, driftLerp);
     }
 
     s.targetVel.z += s.scrollAccum;
