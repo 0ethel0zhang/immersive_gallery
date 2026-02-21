@@ -8,12 +8,12 @@
   pointer-events: none;
   justify-items: start;
   align-items: center;
-  grid-template-columns: auto auto auto auto 1fr;
+  grid-template-columns: auto auto auto auto 1fr auto;
   grid-template-areas:
-    "title title credits ..."
-    "back archive github ..."
-    "tags tags tags tags"
-    "sponsor sponsor sponsor sponsor";
+    "title title title ... upload"
+    "back archive github ... ..."
+    "tags tags tags tags tags"
+    "sponsor sponsor sponsor sponsor sponsor";
   color: #fff;
   mix-blend-mode: difference;
   font-family: "DM Sans", sans-serif;
@@ -24,7 +24,7 @@
 .frame a,
 .frame button {
   pointer-events: auto;
-  color: #fff;
+  /* color: #fff; */
   mix-blend-mode: difference;
 }
 
@@ -69,6 +69,49 @@
   mix-blend-mode: difference;
 }
 
+.frame__uploadWrap {
+  grid-area: upload;
+  justify-self: end;
+  position: relative;
+  pointer-events: auto;
+}
+
+.frame__fileInput {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.frame__upload {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #111;
+  background: #fff;
+  border: none;
+  border-radius: 4px;
+  mix-blend-mode: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.frame__upload:hover {
+  background: #f0f0f0;
+}
+
+.frame__upload:active {
+  transform: scale(0.98);
+}
+
 @media screen and (min-width: 53em) {
   .frame {
     padding: var(--page-padding, 1.5rem);
@@ -78,11 +121,11 @@
     left: 0;
     width: 100%;
     grid-column-gap: 2rem;
-    grid-template-columns: auto auto auto 1fr;
+    grid-template-columns: auto auto auto 1fr auto;
     grid-template-rows: auto auto auto;
     align-content: space-between;
     grid-template-areas:
-      "back github archive ... credits"
+      "back github archive ... upload"
       "title title title title title"
       "tags tags tags tags sponsor";
   }
@@ -90,6 +133,15 @@
   .frame__title {
     justify-self: center;
     font-size: clamp(2rem, 5vw, 3rem);
+  }
+
+  .frame__uploadWrap {
+    align-self: start;
+  }
+
+  .frame__upload {
+    padding: 0.5rem 1.25rem;
+    font-size: 0.8rem;
   }
 
   .frame__tags {
