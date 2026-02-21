@@ -58,7 +58,7 @@ export function MusicPlayer() {
 
   return (
     <>
-      <iframe ref={iframeRef} src={WIDGET_SRC} allow="autoplay" style={{ display: "none" }} />
+      <iframe ref={iframeRef} src={WIDGET_SRC} allow="autoplay; encrypted-media" style={{ display: "none" }} />
       {ready && (
         <button className={styles.toggle} onClick={toggle} type="button" aria-label={muted ? "Unmute music" : "Mute music"}>
           {muted ? (
