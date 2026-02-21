@@ -4,6 +4,13 @@ export type MediaItem = {
   url: string;
   width: number;
   height: number;
+  dominantColor?: string;
+  palette?: string[];
+  title?: string;
+  artist?: string;
+  year?: string;
+  link?: string;
+  type?: string;
 };
 
 export type FocusColor = { r: number; g: number; b: number };

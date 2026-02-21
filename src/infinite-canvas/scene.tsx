@@ -2,8 +2,11 @@ import { KeyboardControls, Stats, useKeyboardControls, useProgress } from "@reac
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
+import { useEffects } from "~/src/copilot/effects-context";
 import { useIsTouchDevice } from "~/src/use-is-touch-device";
 import { clamp, lerp } from "~/src/utils";
+import { FrameDecoration } from "./frame-decoration";
+import { OverlayEffect } from "./overlay-effect";
 import {
   CHUNK_FADE_MARGIN,
   CHUNK_OFFSETS,
@@ -79,6 +82,7 @@ function MediaPlane({
   chunkCz,
   cameraGridRef,
   focusRef,
+  planeId,
 }: {
   position: THREE.Vector3;
   scale: THREE.Vector3;
@@ -88,11 +92,13 @@ function MediaPlane({
   chunkCz: number;
   cameraGridRef: React.RefObject<CameraGridState>;
   focusRef: React.RefObject<FocusState>;
+  planeId: string;
 }) {
   const camera = useThree((s) => s.camera);
   const meshRef = React.useRef<THREE.Mesh>(null);
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
+  const { stateRef, revision } = useEffects();
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
@@ -208,14 +214,24 @@ function MediaPlane({
     mesh.scale.copy(displayScale);
   }, [displayScale, texture, isReady]);
 
+  const frame = stateRef.current.frames.get(planeId) ?? stateRef.current.frames.get("__default__") ?? null;
+  const overlay = stateRef.current.overlays.get(planeId) ?? stateRef.current.overlays.get("__default__") ?? null;
+  // Reference revision to re-render when effects change
+  void revision;
+
+
   if (!texture || !isReady) {
     return null;
   }
 
   return (
-    <mesh ref={meshRef} position={position} scale={displayScale} visible={false} geometry={PLANE_GEOMETRY}>
-      <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
-    </mesh>
+    <group position={position}>
+      <mesh ref={meshRef} scale={displayScale} visible={false} geometry={PLANE_GEOMETRY}>
+        <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
+      </mesh>
+      {frame && <FrameDecoration frame={frame} width={displayScale.x} height={displayScale.y} opacityRef={localState} />}
+      {overlay && <OverlayEffect overlay={overlay} width={displayScale.x} height={displayScale.y} opacityRef={localState} />}
+    </group>
   );
 }
 
@@ -282,6 +298,7 @@ function Chunk({
             chunkCz={cz}
             cameraGridRef={cameraGridRef}
             focusRef={focusRef}
+            planeId={plane.id}
           />
         );
       })}
@@ -321,18 +338,24 @@ const createInitialState = (camZ: number): ControllerState => ({
   pendingChunk: null,
 });
 
-const WHITE = new THREE.Color("#ffffff");
 
 function BackgroundUpdater({
   focusRef,
   onFocusChange,
+  baseColor,
 }: {
   focusRef: React.RefObject<FocusState>;
   onFocusChange?: (color: { r: number; g: number; b: number } | null, coverage: number) => void;
+  baseColor: string;
 }) {
   const scene = useThree((s) => s.scene);
-  const currentColor = React.useRef(new THREE.Color("#ffffff"));
+  const currentColor = React.useRef(new THREE.Color(baseColor));
+  const baseColorRef = React.useRef(new THREE.Color(baseColor));
   const lastEmitTime = React.useRef(0);
+
+  React.useEffect(() => {
+    baseColorRef.current.set(baseColor);
+  }, [baseColor]);
 
   const EFFECT_BLEND_LERP = 0.05;
 
@@ -361,7 +384,7 @@ function BackgroundUpdater({
     if (focus.coverage > 0.5) {
       cur.lerp(focus.color, EFFECT_BLEND_LERP);
     } else {
-      cur.lerp(WHITE, EFFECT_BLEND_LERP);
+      cur.lerp(baseColorRef.current, EFFECT_BLEND_LERP);
     }
 
     if (scene.background instanceof THREE.Color) {
@@ -383,12 +406,14 @@ function SceneController({
   onFocusChange,
   focusEffectType = "fire",
   layoutParams,
+  backgroundColor = "#ffffff",
 }: {
   media: MediaItem[];
   onTextureProgress?: (progress: number) => void;
   onFocusChange?: (color: { r: number; g: number; b: number } | null, coverage: number) => void;
   focusEffectType?: "fire" | "cloud" | "flowers";
   layoutParams: LayoutParams;
+  backgroundColor?: string;
 }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
@@ -631,7 +656,7 @@ function SceneController({
         />
       ))}
       <FocusEffects3D focusRef={focusRef} effectType={focusEffectType} />
-      <BackgroundUpdater focusRef={focusRef} onFocusChange={onFocusChange} />
+      <BackgroundUpdater focusRef={focusRef} onFocusChange={onFocusChange} baseColor={backgroundColor} />
     </>
   );
 }
@@ -677,6 +702,7 @@ export function InfiniteCanvasScene({
             onFocusChange={onFocusChange}
             focusEffectType={focusEffectType}
             layoutParams={layoutParams}
+            backgroundColor={backgroundColor}
           />
           {showFps && <Stats className={styles.stats} />}
         </Canvas>

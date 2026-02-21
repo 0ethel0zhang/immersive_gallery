@@ -19,4 +19,9 @@ export default defineConfig({
       "~": path.resolve(__dirname, "."),
     },
   },
+  server: {
+    proxy: {
+      "/api/copilotkit": "http://localhost:4200",
+    },
+  },
 });
