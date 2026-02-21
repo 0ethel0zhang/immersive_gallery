@@ -40,7 +40,8 @@ export function CopilotReadables({
   });
 
   useCopilotReadable({
-    description: "Current layout parameters controlling how artworks are arranged",
+    description:
+      "Current layout parameters controlling artwork arrangement. mode: 'random' (organic scatter) or 'grid' (orderly rows). itemsPerChunk: density (1-15). sizeMin/sizeMax: artwork display size range. spacing: gap between artworks (0-0.5). depthSpread: Z-depth variation (0=flat, 1=full 3D).",
     value: layoutParams,
   });
 
