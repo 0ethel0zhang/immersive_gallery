@@ -86,7 +86,9 @@ export function FrameDecoration({
 }) {
   const meshRef = React.useRef<THREE.Mesh>(null);
 
-  const thickness = frame.width * 0.8;
+  // Scale thickness relative to artwork size so frames are visible at all zoom levels
+  const baseThickness = Math.max(width, height) * 0.03; // 3% of artwork size
+  const thickness = baseThickness + frame.width * 0.5;
 
   const geometry = React.useMemo(
     () => buildFrameBorderGeometry(width, height, thickness, frame.style),
@@ -101,18 +103,13 @@ export function FrameDecoration({
     };
   }, [geometry]);
 
-  const debugRef = React.useRef(0);
   useFrame(() => {
     if (meshRef.current) {
       const op = opacityRef.current.opacity;
       (meshRef.current.material as THREE.MeshBasicMaterial).opacity = op;
       meshRef.current.visible = op > 0.01;
-      debugRef.current++;
-      if (debugRef.current % 300 === 1) {
-        console.log("[FrameDebug]", { op, visible: meshRef.current.visible, color: frame.color, w: width, h: height });
-      }
     }
   });
 
-  return <mesh ref={meshRef} geometry={geometry} material={material} />;
+  return <mesh ref={meshRef} geometry={geometry} material={material} position={[0, 0, 0.1]} />;
 }

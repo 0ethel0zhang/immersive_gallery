@@ -1,64 +1,76 @@
 # Debugging: CopilotKit Visual Effects Not Visible
 
-## Status: In Progress
+## Status: ALL FIXED — Background, frames, and overlays all verified working
 
 ## Problem
-CopilotKit chatbot actions (`addFrame`, `addOverlay`) execute successfully on the server side, but frames and overlays are not visually appearing on the canvas.
+CopilotKit chatbot actions (`addFrame`, `addOverlay`, `changeSceneColors`) execute successfully on the server side, but effects were not visually appearing on the canvas.
 
-## What Works
+## What Works Now
 - CopilotKit server runs on port 4200, proxied through Vite at `/api/copilotkit`
 - Chat UI opens, messages are sent, LLM responds, tool calls execute (confirmed via network tab)
 - `addFrame` handler runs: `stateRef.current.frames.set("__default__", {...})` + `notify()` fires
-- `notify()` increments `revision` state in `EffectsProvider`, which should trigger re-renders
+- `notify()` increments `revision` state in `EffectsProvider`, triggers re-renders
 - `modifyLayout` action works correctly (separate state path)
+- **`changeSceneColors` now works** — confirmed background changes to `#000033` (dark navy blue) visually
 
-## What Doesn't Work
-- Gold frame borders are not visible around artworks after `addFrame` executes (confirmed: rendering but invisible due to contrast)
-- Overlay particle effects — not yet tested after fixes
-- `changeSceneColors` — action reports success but background stays white
+## What Needs Verification
+- ~~**Gold frame borders**~~ — **VERIFIED** ✓ Gold borders visible around artworks on dark background
+- ~~**Overlay particle effects**~~ — **VERIFIED** ✓ White sparkle particles animate across the scene with additive blending
 
 ---
 
-## Root Causes Found
+## Root Causes Found & Fixed
 
 ### Bug 1 (FIXED): `localState.current.opacity` read during render was 0
 - `MediaPlane` updates opacity imperatively in `useFrame` (animation loop)
 - When `revision` change triggers a React re-render, `localState.current.opacity` is read as a prop value
 - At re-render time, opacity was 0 for many planes (they hadn't been animated yet in the new render cycle)
-- **Fix applied**: Changed `FrameDecoration` and `OverlayEffect` to accept `opacityRef` (the ref itself) instead of a static `opacity` number. Both now use `useFrame` to read live opacity each frame.
+- **Fix**: Changed `FrameDecoration` and `OverlayEffect` to accept `opacityRef` (the ref itself) instead of a static `opacity` number. Both now use `useFrame` to read live opacity each frame.
 
-### Bug 2 (CONFIRMED WORKING): Frames DO render after the opacity fix
-- Added `console.log("[FrameDebug]", { op, visible, color, w, h })` inside `FrameDecoration`'s `useFrame`
-- **Initial logs**: `op: 0, visible: false` — opacity starts at 0 and takes time to ramp up (lerp at 0.18 per frame)
-- **After ~5 seconds**: `op: 0.103, visible: true` — frames ARE rendering with non-zero opacity
-- Frames are present in the scene with correct gold color and dimensions
-- **But gold on white background has extremely low visual contrast** — nearly invisible to the eye
+### Bug 2 (FIXED): Frames rendered but invisible — contrast + Z-fighting + thickness
+- Frames were rendering at z=0 (same plane as artwork) causing Z-fighting
+- Frame thickness was `frame.width * 0.8` = 0.24 units for default width 0.3, nearly invisible on 12-20 unit artworks
+- Gold on white background had extremely low visual contrast
+- **Fixes applied**:
+  - Z-offset: Frame mesh now renders at `position={[0, 0, 0.1]}` (slightly in front of artwork)
+  - Thickness: Now `max(width, height) * 0.03 + frame.width * 0.5` — scales with artwork size
+  - Background fix (Bug 3) provides contrast for gold frames
 
-### Bug 3 (FIX APPLIED, NEEDS TESTING): `changeSceneColors` overridden by `BackgroundUpdater`
-- `changeSceneColors` action calls `setSceneColors("dark blue", "dark blue")` which updates React state
-- This passes `backgroundColor` prop to `InfiniteCanvasScene` → `<color attach="background" args={[backgroundColor]} />`
-- **However**, `BackgroundUpdater` component runs `useFrame` every frame and lerps `scene.background` toward a hardcoded `WHITE` constant when no artwork is in focus
-- This immediately overrides the user-specified background color back to white
-- **Fix applied**: `BackgroundUpdater` now accepts a `baseColor` prop (the user-specified background color) and lerps toward that instead of hardcoded white. The prop flows: `InfiniteCanvasScene` → `SceneController` → `BackgroundUpdater`.
+### Bug 3 (FIXED): `changeSceneColors` overridden by `BackgroundUpdater`
+- `BackgroundUpdater` component ran `useFrame` every frame and lerped `scene.background` toward a hardcoded `WHITE` constant
+- This immediately overrode any user-specified background color back to white
+- **Fix**: `BackgroundUpdater` now accepts a `baseColor` prop and lerps toward that instead of hardcoded white
+
+### Bug 4 (FIXED): CSS color name parsing — Three.js rejects multi-word color names
+- LLM would pass "dark navy blue" → stripped to "darknavyblue" → still invalid for Three.js `Color`
+- Three.js `Color` silently defaults to black (0,0,0) for unknown names, hard to detect
+- **Fixes applied**:
+  - `normalizeColor()` function validates colors with `THREE.Color`, tries raw → stripped → fallback
+  - Detects silent-black default (r=0,g=0,b=0 for non-black inputs) and falls back to `#1a1a2e`
+  - Action description now strongly instructs LLM to always use hex codes with examples
+  - Parameter descriptions say "MUST be a hex code" to prevent ambiguity
+
+### Bug 5 (FIXED): Debug logging left in production code
+- `debugRef` counter + `console.log("[FrameDebug]")` every 300 frames in `frame-decoration.tsx`
+- **Fix**: Removed all debug logging
 
 ## Files Modified
 | File | Change |
 |------|--------|
-| `src/infinite-canvas/frame-decoration.tsx` | Full rewrite: `<lineSegments>` -> `<mesh>` with quad borders; accepts `opacityRef` + `useFrame`; temp debug logging (to remove) |
-| `src/infinite-canvas/overlay-effect.tsx` | Enhanced sizes/counts/blending; accepts `opacityRef` + `useFrame` |
-| `src/infinite-canvas/scene.tsx` | Passes `opacityRef={localState}` instead of `opacity`; `BackgroundUpdater` now uses `baseColor` prop instead of hardcoded WHITE; `SceneController` passes `backgroundColor` through |
+| `src/infinite-canvas/frame-decoration.tsx` | Quad-based borders; `opacityRef` + `useFrame`; z-offset `0.1`; thickness scales with artwork size; debug logging removed |
+| `src/infinite-canvas/overlay-effect.tsx` | Enhanced sizes/counts/blending; `opacityRef` + `useFrame` |
+| `src/infinite-canvas/scene.tsx` | `opacityRef={localState}` prop; `BackgroundUpdater` uses `baseColor` prop; `SceneController` passes `backgroundColor` through |
+| `src/copilot/actions.tsx` | `normalizeColor()` validates + sanitizes colors; action descriptions enforce hex codes with examples |
 
-## Temporary Debug Code (to remove)
-- `src/infinite-canvas/frame-decoration.tsx` lines ~104-114: `debugRef` counter + `console.log("[FrameDebug]", ...)` every 300 frames
+## Verification Results (2026-02-21)
 
-## Next Steps
+All effects confirmed working via browser test:
+- Sent chat message: "Change background to #000033 and add gold frames and white sparkles overlay"
+- LLM called all three actions: `changeSceneColors`, `addFrame`, `addOverlay`
+- Background changed to dark navy blue
+- Gold frame borders visible around artworks (z-offset and thickness fixes working)
+- White sparkle particles animate across the scene with additive blending on dark background
+- No console errors
 
-1. **Test `changeSceneColors` fix** — Open http://localhost:5174, chat "change background to dark blue", verify background actually turns dark blue now
-2. **Verify gold frames on dark background** — With dark blue background, gold frames should be clearly visible. Take screenshot to confirm.
-3. **Test overlays** — Chat "add sparkles", verify particle overlay effects appear
-4. **If frames still invisible on dark background**, investigate:
-   - Z-fighting: frame quads at z=0 same as artwork plane — may need z offset (e.g., z=0.05)
-   - Render order / depth testing: transparent material sorting
-   - Frame thickness: `width * 0.8` may be too thin at current zoom levels
-5. **Remove debug logging** — Delete `debugRef` + `console.log("[FrameDebug]")` from `frame-decoration.tsx`
-6. **CSS color name parsing** — "dark blue" has a space; Three.js `Color` constructor may not accept it. Standard CSS name is "darkblue". If background doesn't change, this is likely why. The `changeSceneColors` action description should recommend hex codes.
+## Remaining (low priority)
+- **Chat UI issue** — Messages sent but conversation history not visible in chat panel after response. May be a CopilotKit UI rendering issue (functionality works).
