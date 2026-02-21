@@ -9,9 +9,13 @@ import { MusicPlayer } from "~/src/music-player";
 import { PageLoader } from "~/src/loader";
 
 export function App() {
-  const [media] = React.useState<MediaItem[]>(manifest);
+  const [media, setMedia] = React.useState<MediaItem[]>(manifest);
   const [textureProgress, setTextureProgress] = React.useState(0);
   const [layoutParams, setLayoutParams] = React.useState<LayoutParams>(DEFAULT_LAYOUT_PARAMS);
+
+  const addUploadedMedia = React.useCallback((items: MediaItem[]) => {
+    setMedia((prev) => [...prev, ...items]);
+  }, []);
 
   if (!media.length) {
     return <PageLoader progress={0} />;
@@ -19,7 +23,7 @@ export function App() {
 
   return (
     <>
-      <Frame />
+      <Frame onUpload={addUploadedMedia} />
       <PageLoader progress={textureProgress} />
       <InfiniteCanvas
         media={media}
