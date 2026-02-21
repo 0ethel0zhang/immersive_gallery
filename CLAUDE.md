@@ -58,3 +58,65 @@ All in `SceneController`: mouse drag pans X/Y, scroll wheel zooms Z-axis, touch 
 ### Component hierarchy
 
 `App` → `Frame` (header/nav overlay) + `PageLoader` (loading screen) + `InfiniteCanvas` (lazy-loaded via `React.lazy`) → `InfiniteCanvasScene` (R3F `Canvas` + fog + keyboard controls) → `SceneController` (camera/input/chunk management) → `Chunk[]` → `MediaPlane[]`
+
+Architecture Overview
+
+The app uses CopilotKit with an Anthropic adapter (Claude Sonnet) to give users a natural-language chat interface for controlling the 3D
+gallery. The system has three layers:
+
+1. Server — server/index.ts
+
+An Express server hosts the CopilotKit runtime at /api/copilotkit. It uses AnthropicAdapter with claude-sonnet-4-20250514 and provides a
+system prompt telling Claude it's a gallery assistant that can modify colors, layout, frames, and overlays.
+
+2. Chat UI — src/chat/index.tsx
+
+A ChatPanel component (toggle button with sparkle icon) uses useCopilotChat to send user messages to the CopilotKit runtime and display
+responses. This is the user-facing interface to Claude.
+
+3. Actions & Readables — src/copilot/
+
+Readables (readables.tsx) expose app state to Claude so it can reason about what's currently configured:
+
+- Artwork metadata (titles, artists, years — first 20 items)
+- Current layout parameters (mode, density, size range, spacing, depth)
+- Currently applied visual effects (frames, overlays, filters, depth)
+
+Actions (actions.tsx) register 7 useCopilotAction hooks that Claude can invoke via tool calls:
+
+┌───────────────────┬────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Action │ What it does │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ changeSceneColors │ Sets background and fog color of the 3D scene │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ modifyLayout │ Changes artwork arrangement — density, size range, spacing, grid/random mode, depth spread │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ addFrame │ Adds decorative border frames (simple/ornate/double) to all artworks │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ addOverlay │ Adds particle effects (sparkles/stars/dust) around artworks │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ applyFilter │ Applies GLSL visual filters (grayscale, sepia, warm, cool, vintage, etc.) │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ addDepth │ Gives artworks 3D thickness with visible side edges │
+├───────────────────┼────────────────────────────────────────────────────────────────────────────────────────────┤
+│ clearAllEffects │ Resets everything to defaults │
+└───────────────────┴────────────────────────────────────────────────────────────────────────────────────────────┘
+
+4. Effects System — src/copilot/effects-store.ts + effects-context.tsx
+
+The effects state (frames, overlays, filters, depths) lives in a ref-based store with a manual revision counter. When Claude triggers an
+action, the handler mutates the store and calls notify(), which bumps the revision and triggers a React re-render. The scene components
+(FrameDecoration, OverlayEffect, DepthEffect, and filter shaders in scene.tsx) read from this store via useEffects() and apply the visual
+changes in the Three.js scene.
+
+Data Flow Summary
+
+User types in ChatPanel
+→ CopilotKit sends to server (Claude Sonnet)
+→ Claude reads Readables (current state) + picks an Action
+→ Action handler mutates EffectsState / calls setSceneColors / setLayoutParams
+→ React re-renders → Three.js scene updates visually
+→ Claude's text response appears in ChatPanel
+
+So Claude acts as a natural-language controller — it interprets what the user wants ("make it look like a museum", "add gold frames",
+"make it moody and dark"), maps that to the appropriate action(s) with suitable parameters, and executes them against the app's state.
