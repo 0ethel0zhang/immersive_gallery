@@ -1,0 +1,101 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: 0.4;
+  transition: opacity 0.2s ease-out;
+}
+
+.overlayVisible {
+  opacity: 0.5;
+}
+
+/* Fire: radial gradient with color tint, animated */
+.fire {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 100%,
+    var(--effect-color) 0%,
+    var(--effect-color-dark) 40%,
+    transparent 70%
+  );
+  animation: firePulse 3s ease-in-out infinite;
+}
+
+@keyframes firePulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scaleY(1.02);
+  }
+}
+
+/* Cloud: soft gradient blobs */
+.cloud {
+  background: radial-gradient(
+      ellipse 60% 40% at 20% 80%,
+      var(--effect-color) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 50% 35% at 80% 70%,
+      var(--effect-color) 0%,
+      transparent 45%
+    ),
+    radial-gradient(
+      ellipse 70% 45% at 50% 50%,
+      var(--effect-color-soft) 0%,
+      transparent 55%
+    );
+  animation: cloudDrift 8s ease-in-out infinite;
+}
+
+@keyframes cloudDrift {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Flowers: simple shapes via SVG/canvas - we use gradient orbs as placeholder */
+.flowers {
+  background: radial-gradient(
+      circle at 15% 85%,
+      var(--effect-color) 0%,
+      transparent 25%
+    ),
+    radial-gradient(
+      circle at 85% 15%,
+      var(--effect-color) 0%,
+      transparent 25%
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      var(--effect-color-soft) 0%,
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 80% 80%,
+      var(--effect-color-dark) 0%,
+      transparent 20%
+    );
+  animation: flowersBloom 4s ease-in-out infinite;
+}
+
+@keyframes flowersBloom {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

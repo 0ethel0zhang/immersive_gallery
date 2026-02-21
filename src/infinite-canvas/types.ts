@@ -6,9 +6,15 @@ export type MediaItem = {
   height: number;
 };
 
+export type FocusColor = { r: number; g: number; b: number };
+
+export type FocusEffectType = "fire" | "cloud" | "flowers";
+
 export type InfiniteCanvasProps = {
   media: MediaItem[];
   onTextureProgress?: (progress: number) => void;
+  onFocusChange?: (color: FocusColor | null, coverage: number) => void;
+  focusEffectType?: FocusEffectType;
   showFps?: boolean;
   showControls?: boolean;
   cameraFov?: number;

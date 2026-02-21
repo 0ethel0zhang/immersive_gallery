@@ -20,12 +20,15 @@ import {
 } from "./constants";
 import styles from "./style.module.css";
 import { getDominantColor, getTexture } from "./texture-manager";
+import { FocusEffects3D } from "./focus-effects-3d";
 import type { ChunkData, InfiniteCanvasProps, MediaItem, PlaneData } from "./types";
+
+const FOCUS_CALLBACK_THROTTLE_MS = 100;
 import { generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
 
-type FocusState = { coverage: number; color: THREE.Color };
+type FocusState = { coverage: number; color: THREE.Color; effectBlend: number };
 
 const _projMin = new THREE.Vector3();
 const _projMax = new THREE.Vector3();
@@ -317,18 +320,45 @@ const createInitialState = (camZ: number): ControllerState => ({
 
 const WHITE = new THREE.Color("#ffffff");
 
-function BackgroundUpdater({ focusRef }: { focusRef: React.RefObject<FocusState> }) {
+function BackgroundUpdater({
+  focusRef,
+  onFocusChange,
+}: {
+  focusRef: React.RefObject<FocusState>;
+  onFocusChange?: (color: { r: number; g: number; b: number } | null, coverage: number) => void;
+}) {
   const scene = useThree((s) => s.scene);
   const currentColor = React.useRef(new THREE.Color("#ffffff"));
+  const lastEmitTime = React.useRef(0);
+
+  const EFFECT_BLEND_LERP = 0.05;
 
   useFrame(() => {
     const focus = focusRef.current;
     const cur = currentColor.current;
+    const now = Date.now();
+
+    if (onFocusChange && now - lastEmitTime.current >= FOCUS_CALLBACK_THROTTLE_MS) {
+      lastEmitTime.current = now;
+      if (focus.coverage > 0.3) {
+        onFocusChange(
+          { r: focus.color.r, g: focus.color.g, b: focus.color.b },
+          focus.coverage
+        );
+      } else {
+        onFocusChange(null, 0);
+      }
+    }
+
+    const hasFocus = focus.coverage > 0.3;
+    focus.effectBlend = hasFocus
+      ? Math.min(1, focus.effectBlend + EFFECT_BLEND_LERP)
+      : Math.max(0, focus.effectBlend - EFFECT_BLEND_LERP);
 
     if (focus.coverage > 0.5) {
-      cur.lerp(focus.color, 0.05);
+      cur.lerp(focus.color, EFFECT_BLEND_LERP);
     } else {
-      cur.lerp(WHITE, 0.05);
+      cur.lerp(WHITE, EFFECT_BLEND_LERP);
     }
 
     if (scene.background instanceof THREE.Color) {
@@ -344,14 +374,28 @@ function BackgroundUpdater({ focusRef }: { focusRef: React.RefObject<FocusState>
   return null;
 }
 
-function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onTextureProgress?: (progress: number) => void }) {
+function SceneController({
+  media,
+  onTextureProgress,
+  onFocusChange,
+  focusEffectType = "fire",
+}: {
+  media: MediaItem[];
+  onTextureProgress?: (progress: number) => void;
+  onFocusChange?: (color: { r: number; g: number; b: number } | null, coverage: number) => void;
+  focusEffectType?: "fire" | "cloud" | "flowers";
+}) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
   const [, getKeys] = useKeyboardControls<keyof KeyboardKeys>();
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
-  const focusRef = React.useRef<FocusState>({ coverage: 0, color: new THREE.Color("#ffffff") });
+  const focusRef = React.useRef<FocusState>({
+    coverage: 0,
+    color: new THREE.Color("#ffffff"),
+    effectBlend: 0,
+  });
 
   const [chunks, setChunks] = React.useState<ChunkData[]>([]);
 
@@ -572,7 +616,8 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
           focusRef={focusRef}
         />
       ))}
-      <BackgroundUpdater focusRef={focusRef} />
+      <FocusEffects3D focusRef={focusRef} effectType={focusEffectType} />
+      <BackgroundUpdater focusRef={focusRef} onFocusChange={onFocusChange} />
     </>
   );
 }
@@ -580,6 +625,8 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
 export function InfiniteCanvasScene({
   media,
   onTextureProgress,
+  onFocusChange,
+  focusEffectType = "fire",
   showFps = false,
   showControls = false,
   cameraFov = 60,
@@ -609,7 +656,12 @@ export function InfiniteCanvasScene({
         >
           <color attach="background" args={[backgroundColor]} />
           <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
-          <SceneController media={media} onTextureProgress={onTextureProgress} />
+          <SceneController
+            media={media}
+            onTextureProgress={onTextureProgress}
+            onFocusChange={onFocusChange}
+            focusEffectType={focusEffectType}
+          />
           {showFps && <Stats className={styles.stats} />}
         </Canvas>
 

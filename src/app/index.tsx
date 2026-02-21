@@ -17,7 +17,11 @@ export function App() {
     <>
       <Frame />
       <PageLoader progress={textureProgress} />
-      <InfiniteCanvas media={media} onTextureProgress={setTextureProgress} />
+      <InfiniteCanvas
+        media={media}
+        onTextureProgress={setTextureProgress}
+        focusEffectType="fire"
+      />
     </>
   );
 }
