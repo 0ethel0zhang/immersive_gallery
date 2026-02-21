@@ -1,0 +1,22 @@
+.toggle {
+  position: fixed;
+  bottom: var(--page-padding, 1.5rem);
+  right: var(--page-padding, 1.5rem);
+  z-index: 1000;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  mix-blend-mode: difference;
+  transition: border-color 0.2s;
+}
+
+.toggle:hover {
+  border-color: rgba(255, 255, 255, 0.7);
+}

@@ -25,7 +25,7 @@ import { generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpda
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
 
-type FocusState = { coverage: number; color: THREE.Color };
+type FocusState = { coverage: number; color: THREE.Color; mediaUrl: string };
 
 const _projMin = new THREE.Vector3();
 const _projMax = new THREE.Vector3();
@@ -150,6 +150,7 @@ function MediaPlane({
         if (color) {
           focusRef.current.coverage = coverage;
           focusRef.current.color = color;
+          focusRef.current.mediaUrl = media.url;
         }
       }
     }
@@ -317,6 +318,475 @@ const createInitialState = (camZ: number): ControllerState => ({
 
 const WHITE = new THREE.Color("#ffffff");
 
+// --- Emoji Background System ---
+
+const COLOR_EMOJIS: Record<string, string[]> = {
+  red: ["❤️", "🌹", "🍎", "🍒", "🌶️", "💃", "🦞", "🍓", "🥀", "🫀"],
+  orange: ["🍊", "🧡", "🥕", "🦊", "🎃", "🦁", "🍑", "🥭", "🔥", "🏵️"],
+  yellow: ["⭐", "💛", "🌻", "🍋", "🐝", "🌟", "🏆", "🍌", "🌕", "✨"],
+  green: ["🌿", "💚", "🌲", "🍀", "🐸", "🌱", "🥝", "🥒", "🦎", "🍃"],
+  blue: ["💙", "🌊", "🦋", "🐳", "🫧", "🧊", "💎", "🌀", "🐟", "🦕"],
+  purple: ["💜", "🔮", "🍇", "🦄", "🌸", "💐", "🎆", "🪻", "🍆", "🦑"],
+  pink: ["💗", "🌺", "🦩", "🎀", "🌷", "🩷", "🧁", "💅", "🩰", "🫶"],
+  neutral: ["⭐", "✨", "💫", "🌟", "☁️", "🤍", "🕊️", "❄️", "💎", "🦢"],
+};
+
+const getColorCategory = (color: THREE.Color): string => {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  if (hsl.s < 0.15 || hsl.l > 0.85 || hsl.l < 0.15) return "neutral";
+  const deg = hsl.h * 360;
+  if (deg < 15 || deg >= 345) return "red";
+  if (deg < 45) return "orange";
+  if (deg < 70) return "yellow";
+  if (deg < 160) return "green";
+  if (deg < 250) return "blue";
+  if (deg < 300) return "purple";
+  return "pink";
+};
+
+const emojiCanvasCache = new Map<string, THREE.CanvasTexture>();
+
+const getEmojiTexture = (emoji: string): THREE.CanvasTexture => {
+  const cached = emojiCanvasCache.get(emoji);
+  if (cached) return cached;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, size, size);
+  ctx.font = `${size * 0.8}px serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.05);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  emojiCanvasCache.set(emoji, tex);
+  return tex;
+};
+
+type EmojiInstance = {
+  emoji: string;
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+  rotSpeed: number;
+  floatPhase: number;
+  floatAmp: number;
+};
+
+const EMOJI_COUNT = 10;
+const EMOJI_SPREAD = 60;
+const EMOJI_DEPTH_OFFSET = 25;
+
+function EmojiSprite({
+  instance,
+  camPos,
+  opacity,
+}: {
+  instance: EmojiInstance;
+  camPos: React.RefObject<{ x: number; y: number; z: number }>;
+  opacity: React.RefObject<number>;
+}) {
+  const spriteRef = React.useRef<THREE.Sprite>(null);
+  const materialRef = React.useRef<THREE.SpriteMaterial>(null);
+  const texture = React.useMemo(() => getEmojiTexture(instance.emoji), [instance.emoji]);
+
+  useFrame(({ clock }) => {
+    const sprite = spriteRef.current;
+    const material = materialRef.current;
+    if (!sprite || !material) return;
+
+    const t = clock.getElapsedTime();
+    const cam = camPos.current;
+    sprite.position.set(
+      cam.x + instance.x,
+      cam.y + instance.y + Math.sin(t * 0.5 + instance.floatPhase) * instance.floatAmp,
+      cam.z - EMOJI_DEPTH_OFFSET + instance.z
+    );
+    sprite.material.rotation += instance.rotSpeed * 0.01;
+    material.opacity = opacity.current;
+  });
+
+  return (
+    <sprite ref={spriteRef} scale={[instance.size, instance.size, 1]}>
+      <spriteMaterial ref={materialRef} map={texture} transparent opacity={0} depthWrite={false} />
+    </sprite>
+  );
+}
+
+function EmojiBackground({
+  focusRef,
+  basePosRef,
+}: {
+  focusRef: React.RefObject<FocusState>;
+  basePosRef: React.RefObject<{ x: number; y: number; z: number }>;
+}) {
+  const [instances, setInstances] = React.useState<EmojiInstance[]>([]);
+  const lastMediaUrl = React.useRef("");
+  const opacityRef = React.useRef(0);
+  const targetOpacity = React.useRef(0);
+
+  useFrame(() => {
+    const focus = focusRef.current;
+    const category = focus.coverage > 0.3 ? getColorCategory(focus.color) : "neutral";
+
+    if (focus.mediaUrl && focus.mediaUrl !== lastMediaUrl.current && focus.coverage > 0.3) {
+      lastMediaUrl.current = focus.mediaUrl;
+      targetOpacity.current = 0;
+    }
+
+    opacityRef.current = lerp(opacityRef.current, targetOpacity.current, 0.04);
+
+    if (opacityRef.current < 0.01 && targetOpacity.current === 0) {
+      const emojis = COLOR_EMOJIS[category] ?? COLOR_EMOJIS.neutral;
+      const newInstances: EmojiInstance[] = [];
+      for (let i = 0; i < EMOJI_COUNT; i++) {
+        const angle = (i / EMOJI_COUNT) * Math.PI * 2 + Math.random() * 0.5;
+        const radius = EMOJI_SPREAD * 0.4 + Math.random() * EMOJI_SPREAD * 0.6;
+        newInstances.push({
+          emoji: emojis[Math.floor(Math.random() * emojis.length)],
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          z: -10 + Math.random() * -20,
+          size: 3 + Math.random() * 4,
+          rotSpeed: (Math.random() - 0.5) * 2,
+          floatPhase: Math.random() * Math.PI * 2,
+          floatAmp: 0.5 + Math.random() * 1.5,
+        });
+      }
+      setInstances(newInstances);
+      targetOpacity.current = 0.7;
+    }
+  });
+
+  return (
+    <>
+      {instances.map((inst, i) => (
+        <EmojiSprite key={`${inst.emoji}-${i}`} instance={inst} camPos={basePosRef} opacity={opacityRef} />
+      ))}
+    </>
+  );
+}
+
+// --- End Emoji Background System ---
+
+// --- Random Shape Background System ---
+
+type ShapeType = "blob" | "star" | "polygon" | "wave" | "composed";
+
+const shapeCanvasCache = new Map<string, THREE.CanvasTexture>();
+
+const generateBlobPath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, seed: number) => {
+  const points = 8 + Math.floor(seed * 6); // 8-13 control points
+  ctx.beginPath();
+  for (let i = 0; i <= points; i++) {
+    const angle = (i / points) * Math.PI * 2;
+    const noise = 0.5 + ((Math.sin(seed * 100 + i * 3.7) * 0.5 + 0.5) * 0.8 + 0.2) * 0.5;
+    const r = radius * noise;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      // Smooth curves between points
+      const prevAngle = ((i - 0.5) / points) * Math.PI * 2;
+      const prevNoise = 0.5 + ((Math.sin(seed * 100 + (i - 0.5) * 3.7) * 0.5 + 0.5) * 0.8 + 0.2) * 0.5;
+      const cpR = radius * prevNoise * 1.1;
+      const cpx = cx + Math.cos(prevAngle) * cpR;
+      const cpy = cy + Math.sin(prevAngle) * cpR;
+      ctx.quadraticCurveTo(cpx, cpy, x, y);
+    }
+  }
+  ctx.closePath();
+};
+
+const generateStarPath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, seed: number) => {
+  const arms = 3 + Math.floor(seed * 5); // 3-7 arms
+  const innerRatio = 0.3 + seed * 0.35;
+  ctx.beginPath();
+  for (let i = 0; i <= arms * 2; i++) {
+    const angle = (i / (arms * 2)) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? radius : radius * innerRatio;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+};
+
+const generatePolygonPath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, seed: number) => {
+  const sides = 3 + Math.floor(seed * 6); // 3-8 sides
+  const rotation = seed * Math.PI * 2;
+  ctx.beginPath();
+  for (let i = 0; i <= sides; i++) {
+    const angle = (i / sides) * Math.PI * 2 + rotation;
+    const x = cx + Math.cos(angle) * radius;
+    const y = cy + Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+};
+
+const generateWavePath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, seed: number) => {
+  const lobes = 3 + Math.floor(seed * 4);
+  ctx.beginPath();
+  const steps = 64;
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI * 2;
+    const wobble = Math.sin(angle * lobes + seed * 10) * 0.35 + 0.65;
+    const r = radius * wobble;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+};
+
+const generateComposedPath = (ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, seed: number) => {
+  // Overlapping circles to create organic composed shapes
+  const count = 2 + Math.floor(seed * 3);
+  ctx.beginPath();
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + seed * 5;
+    const dist = radius * 0.3;
+    const r = radius * (0.5 + ((Math.sin(seed * 77 + i * 2.3) + 1) / 2) * 0.4);
+    const ox = cx + Math.cos(angle) * dist;
+    const oy = cy + Math.sin(angle) * dist;
+    ctx.moveTo(ox + r, oy);
+    ctx.arc(ox, oy, r, 0, Math.PI * 2);
+  }
+};
+
+const SHAPE_TYPES: ShapeType[] = ["blob", "star", "polygon", "wave", "composed"];
+
+const generateShapeTexture = (color: THREE.Color, seed: number): THREE.CanvasTexture => {
+  const key = `${color.getHexString()}-${seed.toFixed(4)}`;
+  const cached = shapeCanvasCache.get(key);
+  if (cached) return cached;
+
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, size, size);
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = size * 0.38;
+  const shapeType = SHAPE_TYPES[Math.floor(seed * 7.3) % SHAPE_TYPES.length];
+
+  // Draw the shape path
+  switch (shapeType) {
+    case "blob":
+      generateBlobPath(ctx, cx, cy, radius, seed);
+      break;
+    case "star":
+      generateStarPath(ctx, cx, cy, radius, seed);
+      break;
+    case "polygon":
+      generatePolygonPath(ctx, cx, cy, radius, seed);
+      break;
+    case "wave":
+      generateWavePath(ctx, cx, cy, radius, seed);
+      break;
+    case "composed":
+      generateComposedPath(ctx, cx, cy, radius, seed);
+      break;
+  }
+
+  // Create gradient fill using the dominant color
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+
+  const gradientType = seed > 0.5 ? "radial" : "linear";
+  let gradient: CanvasGradient;
+
+  if (gradientType === "radial") {
+    const ox = cx + (seed - 0.5) * radius * 0.6;
+    const oy = cy + (Math.sin(seed * 20) * radius * 0.3);
+    gradient = ctx.createRadialGradient(ox, oy, 0, cx, cy, radius * 1.2);
+  } else {
+    const angle = seed * Math.PI * 2;
+    const dx = Math.cos(angle) * radius;
+    const dy = Math.sin(angle) * radius;
+    gradient = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+  }
+
+  // Build gradient stops from the dominant color with hue shifts
+  const lightColor = new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 1.2), Math.min(0.85, hsl.l + 0.3));
+  const darkColor = new THREE.Color().setHSL((hsl.h + 0.05) % 1, hsl.s, Math.max(0.15, hsl.l - 0.2));
+  const midColor = new THREE.Color().setHSL((hsl.h + 0.02) % 1, Math.min(1, hsl.s * 1.1), hsl.l);
+
+  gradient.addColorStop(0, `#${lightColor.getHexString()}`);
+  gradient.addColorStop(0.5, `#${midColor.getHexString()}`);
+  gradient.addColorStop(1, `#${darkColor.getHexString()}`);
+
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  // Limit cache size
+  if (shapeCanvasCache.size > 64) {
+    const firstKey = shapeCanvasCache.keys().next().value;
+    if (firstKey) {
+      shapeCanvasCache.get(firstKey)?.dispose();
+      shapeCanvasCache.delete(firstKey);
+    }
+  }
+
+  shapeCanvasCache.set(key, tex);
+  return tex;
+};
+
+type ShapeInstance = {
+  seed: number;
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+  rotSpeed: number;
+  floatPhase: number;
+  floatAmp: number;
+};
+
+const SHAPE_COUNT = 8;
+const SHAPE_SPREAD = 70;
+const SHAPE_DEPTH_OFFSET = 30;
+
+function ShapeSprite({
+  instance,
+  camPos,
+  opacity,
+  color,
+}: {
+  instance: ShapeInstance;
+  camPos: React.RefObject<{ x: number; y: number; z: number }>;
+  opacity: React.RefObject<number>;
+  color: React.RefObject<THREE.Color>;
+}) {
+  const spriteRef = React.useRef<THREE.Sprite>(null);
+  const materialRef = React.useRef<THREE.SpriteMaterial>(null);
+  const textureRef = React.useRef<THREE.CanvasTexture | null>(null);
+  const lastColorHex = React.useRef("");
+
+  useFrame(({ clock }) => {
+    const sprite = spriteRef.current;
+    const material = materialRef.current;
+    if (!sprite || !material) return;
+
+    const t = clock.getElapsedTime();
+    const cam = camPos.current;
+    sprite.position.set(
+      cam.x + instance.x,
+      cam.y + instance.y + Math.sin(t * 0.3 + instance.floatPhase) * instance.floatAmp,
+      cam.z - SHAPE_DEPTH_OFFSET + instance.z
+    );
+    sprite.material.rotation += instance.rotSpeed * 0.005;
+    material.opacity = opacity.current * 0.5; // Shapes are more subtle than emojis
+
+    // Update texture when color changes significantly
+    const hex = color.current.getHexString();
+    if (hex !== lastColorHex.current) {
+      lastColorHex.current = hex;
+      textureRef.current = generateShapeTexture(color.current, instance.seed);
+      material.map = textureRef.current;
+      material.needsUpdate = true;
+    }
+  });
+
+  return (
+    <sprite ref={spriteRef} scale={[instance.size, instance.size, 1]}>
+      <spriteMaterial ref={materialRef} transparent opacity={0} depthWrite={false} />
+    </sprite>
+  );
+}
+
+function ShapeBackground({
+  focusRef,
+  basePosRef,
+}: {
+  focusRef: React.RefObject<FocusState>;
+  basePosRef: React.RefObject<{ x: number; y: number; z: number }>;
+}) {
+  const [instances, setInstances] = React.useState<ShapeInstance[]>([]);
+  const opacityRef = React.useRef(0);
+  const targetOpacity = React.useRef(0);
+  const colorRef = React.useRef(new THREE.Color("#ffffff"));
+  const lastMediaUrl = React.useRef("");
+
+  // Generate instances once on mount
+  React.useEffect(() => {
+    const newInstances: ShapeInstance[] = [];
+    for (let i = 0; i < SHAPE_COUNT; i++) {
+      const angle = (i / SHAPE_COUNT) * Math.PI * 2 + Math.random() * 0.8;
+      const radius = SHAPE_SPREAD * 0.3 + Math.random() * SHAPE_SPREAD * 0.7;
+      newInstances.push({
+        seed: Math.random(),
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+        z: -15 + Math.random() * -25,
+        size: 5 + Math.random() * 8,
+        rotSpeed: (Math.random() - 0.5) * 1.5,
+        floatPhase: Math.random() * Math.PI * 2,
+        floatAmp: 0.3 + Math.random() * 1.0,
+      });
+    }
+    setInstances(newInstances);
+  }, []);
+
+  useFrame(() => {
+    const focus = focusRef.current;
+
+    if (focus.mediaUrl && focus.mediaUrl !== lastMediaUrl.current && focus.coverage > 0.3) {
+      lastMediaUrl.current = focus.mediaUrl;
+      targetOpacity.current = 0;
+    }
+
+    opacityRef.current = lerp(opacityRef.current, targetOpacity.current, 0.04);
+
+    if (opacityRef.current < 0.01 && targetOpacity.current === 0) {
+      // Regenerate positions when transitioning
+      const newInstances: ShapeInstance[] = [];
+      for (let i = 0; i < SHAPE_COUNT; i++) {
+        const angle = (i / SHAPE_COUNT) * Math.PI * 2 + Math.random() * 0.8;
+        const radius = SHAPE_SPREAD * 0.3 + Math.random() * SHAPE_SPREAD * 0.7;
+        newInstances.push({
+          seed: Math.random(),
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          z: -15 + Math.random() * -25,
+          size: 5 + Math.random() * 8,
+          rotSpeed: (Math.random() - 0.5) * 1.5,
+          floatPhase: Math.random() * Math.PI * 2,
+          floatAmp: 0.3 + Math.random() * 1.0,
+        });
+      }
+      setInstances(newInstances);
+      colorRef.current.copy(focus.color);
+      targetOpacity.current = 0.7;
+    }
+  });
+
+  return (
+    <>
+      {instances.map((inst, i) => (
+        <ShapeSprite key={`shape-${i}`} instance={inst} camPos={basePosRef} opacity={opacityRef} color={colorRef} />
+      ))}
+    </>
+  );
+}
+
+// --- End Random Shape Background System ---
+
 function BackgroundUpdater({ focusRef }: { focusRef: React.RefObject<FocusState> }) {
   const scene = useThree((s) => s.scene);
   const currentColor = React.useRef(new THREE.Color("#ffffff"));
@@ -351,7 +821,8 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
-  const focusRef = React.useRef<FocusState>({ coverage: 0, color: new THREE.Color("#ffffff") });
+  const focusRef = React.useRef<FocusState>({ coverage: 0, color: new THREE.Color("#ffffff"), mediaUrl: "" });
+  const basePosRef = React.useRef({ x: 0, y: 0, z: INITIAL_CAMERA_Z });
 
   const [chunks, setChunks] = React.useState<ChunkData[]>([]);
 
@@ -510,6 +981,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
     s.basePos.z += s.velocity.z;
 
     camera.position.set(s.basePos.x + s.drift.x, s.basePos.y + s.drift.y, s.basePos.z);
+    basePosRef.current = s.basePos;
 
     s.targetVel.x *= VELOCITY_DECAY;
     s.targetVel.y *= VELOCITY_DECAY;
@@ -573,6 +1045,8 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
         />
       ))}
       <BackgroundUpdater focusRef={focusRef} />
+      <EmojiBackground focusRef={focusRef} basePosRef={basePosRef} />
+      <ShapeBackground focusRef={focusRef} basePosRef={basePosRef} />
     </>
   );
 }
