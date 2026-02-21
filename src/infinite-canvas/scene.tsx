@@ -145,7 +145,7 @@ function MediaPlane({
       const w = clamp(_projMax.x, -1, 1) - clamp(_projMin.x, -1, 1);
       const h = clamp(_projMax.y, -1, 1) - clamp(_projMin.y, -1, 1);
       const coverage = (Math.abs(w) * Math.abs(h)) / 4;
-      if (coverage > 0.5 && coverage > focusRef.current.coverage) {
+      if (coverage > 0.3 && coverage > focusRef.current.coverage) {
         const color = getDominantColor(media, material.map);
         if (color) {
           focusRef.current.coverage = coverage;
