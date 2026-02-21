@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
 import { useEffects } from "~/src/copilot/effects-context";
+import type { FilterType } from "~/src/copilot/effects-store";
 import { useIsTouchDevice } from "~/src/use-is-touch-device";
 import { clamp, lerp } from "~/src/utils";
 import { FrameDecoration } from "./frame-decoration";
@@ -31,6 +32,83 @@ const FOCUS_CALLBACK_THROTTLE_MS = 100;
 import { clearPlaneCache, generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
+
+const FILTER_TYPE_MAP: Record<FilterType, number> = {
+  grayscale: 1,
+  sepia: 2,
+  invert: 3,
+  saturate: 4,
+  warm: 5,
+  cool: 6,
+  vintage: 7,
+  brightness: 8,
+  contrast: 9,
+};
+
+const VERTEX_SHADER = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const FRAGMENT_SHADER = /* glsl */ `
+uniform sampler2D map;
+uniform float opacity;
+uniform int filterType;
+uniform float filterIntensity;
+varying vec2 vUv;
+
+void main() {
+  vec4 texColor = texture2D(map, vUv);
+  vec3 color = texColor.rgb;
+  vec3 filtered = color;
+
+  if (filterType == 1) {
+    // grayscale
+    float gray = dot(color, vec3(0.299, 0.587, 0.114));
+    filtered = vec3(gray);
+  } else if (filterType == 2) {
+    // sepia
+    float gray = dot(color, vec3(0.299, 0.587, 0.114));
+    filtered = vec3(gray * 1.2, gray * 1.0, gray * 0.8);
+  } else if (filterType == 3) {
+    // invert
+    filtered = 1.0 - color;
+  } else if (filterType == 4) {
+    // saturate
+    float gray = dot(color, vec3(0.299, 0.587, 0.114));
+    filtered = mix(vec3(gray), color, 1.0 + filterIntensity);
+  } else if (filterType == 5) {
+    // warm
+    filtered = vec3(color.r + 0.15 * filterIntensity, color.g + 0.05 * filterIntensity, color.b - 0.1 * filterIntensity);
+  } else if (filterType == 6) {
+    // cool
+    filtered = vec3(color.r - 0.1 * filterIntensity, color.g + 0.05 * filterIntensity, color.b + 0.15 * filterIntensity);
+  } else if (filterType == 7) {
+    // vintage
+    float gray = dot(color, vec3(0.299, 0.587, 0.114));
+    vec3 tint = vec3(gray * 1.1, gray * 0.95, gray * 0.75);
+    float dist = distance(vUv, vec2(0.5));
+    float vignette = smoothstep(0.8, 0.3, dist);
+    filtered = tint * vignette;
+  } else if (filterType == 8) {
+    // brightness
+    filtered = color * (1.0 + filterIntensity);
+  } else if (filterType == 9) {
+    // contrast
+    filtered = (color - 0.5) * (1.0 + filterIntensity) + 0.5;
+  }
+
+  if (filterType > 0 && filterType != 4) {
+    filtered = mix(color, filtered, filterIntensity);
+  }
+
+  filtered = clamp(filtered, 0.0, 1.0);
+  gl_FragColor = vec4(filtered, texColor.a * opacity);
+}
+`;
 
 type FocusState = { coverage: number; color: THREE.Color; effectBlend: number };
 
@@ -96,9 +174,27 @@ function MediaPlane({
 }) {
   const camera = useThree((s) => s.camera);
   const meshRef = React.useRef<THREE.Mesh>(null);
-  const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
+  const materialRef = React.useRef<THREE.ShaderMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
   const { stateRef, revision } = useEffects();
+
+  const shaderMaterial = React.useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: VERTEX_SHADER,
+        fragmentShader: FRAGMENT_SHADER,
+        uniforms: {
+          map: { value: null },
+          opacity: { value: 0 },
+          filterType: { value: 0 },
+          filterIntensity: { value: 0 },
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    [],
+  );
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const [isReady, setIsReady] = React.useState(false);
@@ -124,7 +220,7 @@ function MediaPlane({
 
     if (absDepth > DEPTH_FADE_END + 50) {
       state.opacity = 0;
-      material.opacity = 0;
+      material.uniforms.opacity.value = 0;
       material.depthWrite = false;
       mesh.visible = false;
       return;
@@ -143,11 +239,20 @@ function MediaPlane({
     state.opacity = target < INVIS_THRESHOLD && state.opacity < INVIS_THRESHOLD ? 0 : lerp(state.opacity, target, 0.18);
 
     const isFullyOpaque = state.opacity > 0.99;
-    material.opacity = isFullyOpaque ? 1 : state.opacity;
+    material.uniforms.opacity.value = isFullyOpaque ? 1 : state.opacity;
     material.depthWrite = isFullyOpaque;
     mesh.visible = state.opacity > INVIS_THRESHOLD;
 
-    if (state.opacity > 0.3 && material.map) {
+    const filter = stateRef.current.filters.get(planeId) ?? stateRef.current.filters.get("__default__") ?? null;
+    if (filter) {
+      material.uniforms.filterType.value = FILTER_TYPE_MAP[filter.type] ?? 0;
+      material.uniforms.filterIntensity.value = filter.intensity;
+    } else {
+      material.uniforms.filterType.value = 0;
+      material.uniforms.filterIntensity.value = 0;
+    }
+
+    if (state.opacity > 0.3 && material.uniforms.map.value) {
       const halfW = mesh.scale.x / 2;
       const halfH = mesh.scale.y / 2;
       _projMin.set(position.x - halfW, position.y - halfH, position.z).project(camera);
@@ -156,7 +261,7 @@ function MediaPlane({
       const h = clamp(_projMax.y, -1, 1) - clamp(_projMin.y, -1, 1);
       const coverage = (Math.abs(w) * Math.abs(h)) / 4;
       if (coverage > 0.3 && coverage > focusRef.current.coverage) {
-        const color = getDominantColor(media, material.map);
+        const color = getDominantColor(media, material.uniforms.map.value);
         if (color) {
           focusRef.current.coverage = coverage;
           focusRef.current.color = color;
@@ -185,9 +290,9 @@ function MediaPlane({
     const material = materialRef.current;
 
     if (material) {
-      material.opacity = 0;
+      material.uniforms.opacity.value = 0;
       material.depthWrite = false;
-      material.map = null;
+      material.uniforms.map.value = null;
     }
 
     const tex = getTexture(media, () => {
@@ -208,8 +313,8 @@ function MediaPlane({
       return;
     }
 
-    material.map = texture;
-    material.opacity = state.opacity;
+    material.uniforms.map.value = texture;
+    material.uniforms.opacity.value = state.opacity;
     material.depthWrite = state.opacity >= 1;
     mesh.scale.copy(displayScale);
   }, [displayScale, texture, isReady]);
@@ -227,7 +332,7 @@ function MediaPlane({
   return (
     <group position={position}>
       <mesh ref={meshRef} scale={displayScale} visible={false} geometry={PLANE_GEOMETRY}>
-        <meshBasicMaterial ref={materialRef} transparent opacity={0} side={THREE.DoubleSide} />
+        <primitive object={shaderMaterial} ref={materialRef} attach="material" />
       </mesh>
       {frame && <FrameDecoration frame={frame} width={displayScale.x} height={displayScale.y} opacityRef={localState} />}
       {overlay && <OverlayEffect overlay={overlay} width={displayScale.x} height={displayScale.y} opacityRef={localState} />}

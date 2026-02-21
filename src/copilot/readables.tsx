@@ -30,6 +30,8 @@ export function CopilotReadables({
       overlaysCount: s.overlays.size,
       defaultFrame: s.frames.get("__default__") ?? null,
       defaultOverlay: s.overlays.get("__default__") ?? null,
+      defaultFilter: s.filters.get("__default__") ?? null,
+      filtersCount: s.filters.size,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revision]);
@@ -46,7 +48,7 @@ export function CopilotReadables({
   });
 
   useCopilotReadable({
-    description: "Currently applied visual effects (frames, overlays)",
+    description: "Currently applied visual effects (frames, overlays, filters)",
     value: effectsSummary,
   });
 

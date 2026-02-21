@@ -14,9 +14,17 @@ export type PlaneOverlay = {
   color: string;
 };
 
+export type FilterType = "grayscale" | "sepia" | "invert" | "saturate" | "warm" | "cool" | "vintage" | "brightness" | "contrast";
+
+export type PlaneFilter = {
+  type: FilterType;
+  intensity: number;
+};
+
 export type EffectsState = {
   frames: Map<string, PlaneFrame>;
   overlays: Map<string, PlaneOverlay>;
+  filters: Map<string, PlaneFilter>;
   revision: number;
 };
 
@@ -24,6 +32,7 @@ export function createEffectsState(): EffectsState {
   return {
     frames: new Map(),
     overlays: new Map(),
+    filters: new Map(),
     revision: 0,
   };
 }

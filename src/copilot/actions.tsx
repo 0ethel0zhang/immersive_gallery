@@ -2,7 +2,7 @@ import { useCopilotAction } from "@copilotkit/react-core";
 import * as THREE from "three";
 import type { LayoutParams } from "~/src/infinite-canvas/types";
 import { useEffects } from "./effects-context";
-import type { FrameStyle, OverlayType } from "./effects-store";
+import type { FilterType, FrameStyle, OverlayType } from "./effects-store";
 
 /** Validate a color string with Three.js. Returns hex if valid, null if not. */
 function validateColor(raw: string): string | null {
@@ -193,12 +193,54 @@ Only set the parameters that need to change based on what the user asked. Leave 
   });
 
   useCopilotAction({
+    name: "applyFilter",
+    description:
+      "Apply a visual filter to all artworks (grayscale/black-and-white, sepia, invert, saturate, warm, cool, vintage, brightness, contrast)",
+    parameters: [
+      {
+        name: "type",
+        type: "string",
+        description:
+          "Filter type: grayscale (black-and-white), sepia, invert, saturate, warm, cool, vintage, brightness, contrast",
+        required: true,
+      },
+      {
+        name: "intensity",
+        type: "number",
+        description: "Filter strength from 0 (none) to 1 (full effect). Default is 1.0",
+        required: false,
+      },
+    ],
+    handler: ({ type, intensity }) => {
+      const filterIntensity = Math.max(0, Math.min(1, intensity ?? 1.0));
+      stateRef.current.filters.set("__default__", {
+        type: type as FilterType,
+        intensity: filterIntensity,
+      });
+      notify();
+      return `Applied ${type} filter at ${Math.round(filterIntensity * 100)}% intensity`;
+    },
+  });
+
+  useCopilotAction({
+    name: "removeFilter",
+    description: "Remove the visual filter from all artworks",
+    parameters: [],
+    handler: () => {
+      stateRef.current.filters.clear();
+      notify();
+      return "Filter removed from all artworks";
+    },
+  });
+
+  useCopilotAction({
     name: "clearAllEffects",
-    description: "Remove all visual effects (frames, overlays) and reset scene colors to white",
+    description: "Remove all visual effects (frames, overlays, filters) and reset scene colors to white",
     parameters: [],
     handler: () => {
       stateRef.current.frames.clear();
       stateRef.current.overlays.clear();
+      stateRef.current.filters.clear();
       notify();
       setSceneColors("#ffffff", "#ffffff");
       return "All effects cleared and colors reset";
