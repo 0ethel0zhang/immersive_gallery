@@ -10,6 +10,26 @@ export type FocusColor = { r: number; g: number; b: number };
 
 export type FocusEffectType = "fire" | "cloud" | "flowers";
 
+export type LayoutMode = "random" | "grid";
+
+export type LayoutParams = {
+  itemsPerChunk: number;
+  sizeMin: number;
+  sizeMax: number;
+  spacing: number;
+  mode: LayoutMode;
+  depthSpread: number;
+};
+
+export const DEFAULT_LAYOUT_PARAMS: LayoutParams = {
+  itemsPerChunk: 5,
+  sizeMin: 12,
+  sizeMax: 20,
+  spacing: 0,
+  mode: "random",
+  depthSpread: 1,
+};
+
 export type InfiniteCanvasProps = {
   media: MediaItem[];
   onTextureProgress?: (progress: number) => void;
@@ -24,6 +44,7 @@ export type InfiniteCanvasProps = {
   fogFar?: number;
   backgroundColor?: string;
   fogColor?: string;
+  layoutParams?: LayoutParams;
 };
 
 export type ChunkData = {

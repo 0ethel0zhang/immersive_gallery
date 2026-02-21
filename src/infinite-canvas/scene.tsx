@@ -21,10 +21,11 @@ import {
 import styles from "./style.module.css";
 import { getDominantColor, getTexture } from "./texture-manager";
 import { FocusEffects3D } from "./focus-effects-3d";
-import type { ChunkData, InfiniteCanvasProps, MediaItem, PlaneData } from "./types";
+import { DEFAULT_LAYOUT_PARAMS } from "./types";
+import type { ChunkData, InfiniteCanvasProps, LayoutParams, MediaItem, PlaneData } from "./types";
 
 const FOCUS_CALLBACK_THROTTLE_MS = 100;
-import { generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
+import { clearPlaneCache, generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
 
@@ -225,6 +226,7 @@ function Chunk({
   media,
   cameraGridRef,
   focusRef,
+  layoutParams,
 }: {
   cx: number;
   cy: number;
@@ -232,12 +234,13 @@ function Chunk({
   media: MediaItem[];
   cameraGridRef: React.RefObject<CameraGridState>;
   focusRef: React.RefObject<FocusState>;
+  layoutParams: LayoutParams;
 }) {
   const [planes, setPlanes] = React.useState<PlaneData[] | null>(null);
 
   React.useEffect(() => {
     let canceled = false;
-    const run = () => !canceled && setPlanes(generateChunkPlanesCached(cx, cy, cz));
+    const run = () => !canceled && setPlanes(generateChunkPlanesCached(cx, cy, cz, layoutParams));
 
     if (typeof requestIdleCallback !== "undefined") {
       const id = requestIdleCallback(run, { timeout: 100 });
@@ -253,7 +256,7 @@ function Chunk({
       canceled = true;
       clearTimeout(id);
     };
-  }, [cx, cy, cz]);
+  }, [cx, cy, cz, layoutParams]);
 
   if (!planes) {
     return null;
@@ -379,11 +382,13 @@ function SceneController({
   onTextureProgress,
   onFocusChange,
   focusEffectType = "fire",
+  layoutParams,
 }: {
   media: MediaItem[];
   onTextureProgress?: (progress: number) => void;
   onFocusChange?: (color: { r: number; g: number; b: number } | null, coverage: number) => void;
   focusEffectType?: "fire" | "cloud" | "flowers";
+  layoutParams: LayoutParams;
 }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
@@ -410,6 +415,14 @@ function SceneController({
       onTextureProgress?.(rounded);
     }
   }, [progress, onTextureProgress]);
+
+  const prevParamsRef = React.useRef(layoutParams);
+  React.useEffect(() => {
+    if (prevParamsRef.current !== layoutParams) {
+      clearPlaneCache();
+      prevParamsRef.current = layoutParams;
+    }
+  }, [layoutParams]);
 
   React.useEffect(() => {
     const canvas = gl.domElement;
@@ -614,6 +627,7 @@ function SceneController({
           media={media}
           cameraGridRef={cameraGridRef}
           focusRef={focusRef}
+          layoutParams={layoutParams}
         />
       ))}
       <FocusEffects3D focusRef={focusRef} effectType={focusEffectType} />
@@ -636,6 +650,7 @@ export function InfiniteCanvasScene({
   fogFar = 320,
   backgroundColor = "#ffffff",
   fogColor = "#ffffff",
+  layoutParams = DEFAULT_LAYOUT_PARAMS,
 }: InfiniteCanvasProps) {
   const isTouchDevice = useIsTouchDevice();
   const dpr = Math.min(window.devicePixelRatio || 1, isTouchDevice ? 1.25 : 1.5);
@@ -661,6 +676,7 @@ export function InfiniteCanvasScene({
             onTextureProgress={onTextureProgress}
             onFocusChange={onFocusChange}
             focusEffectType={focusEffectType}
+            layoutParams={layoutParams}
           />
           {showFps && <Stats className={styles.stats} />}
         </Canvas>
