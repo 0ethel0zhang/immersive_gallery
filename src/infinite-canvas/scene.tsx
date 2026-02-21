@@ -19,11 +19,16 @@ import {
   VELOCITY_LERP,
 } from "./constants";
 import styles from "./style.module.css";
-import { getTexture } from "./texture-manager";
+import { getDominantColor, getTexture } from "./texture-manager";
 import type { ChunkData, InfiniteCanvasProps, MediaItem, PlaneData } from "./types";
 import { generateChunkPlanesCached, getChunkUpdateThrottleMs, shouldThrottleUpdate } from "./utils";
 
 const PLANE_GEOMETRY = new THREE.PlaneGeometry(1, 1);
+
+type FocusState = { coverage: number; color: THREE.Color };
+
+const _projMin = new THREE.Vector3();
+const _projMax = new THREE.Vector3();
 
 const KEYBOARD_MAP = [
   { name: "forward", keys: ["w", "W", "ArrowUp"] },
@@ -69,6 +74,7 @@ function MediaPlane({
   chunkCy,
   chunkCz,
   cameraGridRef,
+  focusRef,
 }: {
   position: THREE.Vector3;
   scale: THREE.Vector3;
@@ -77,7 +83,9 @@ function MediaPlane({
   chunkCy: number;
   chunkCz: number;
   cameraGridRef: React.RefObject<CameraGridState>;
+  focusRef: React.RefObject<FocusState>;
 }) {
+  const camera = useThree((s) => s.camera);
   const meshRef = React.useRef<THREE.Mesh>(null);
   const materialRef = React.useRef<THREE.MeshBasicMaterial>(null);
   const localState = React.useRef({ opacity: 0, frame: 0, ready: false });
@@ -128,6 +136,23 @@ function MediaPlane({
     material.opacity = isFullyOpaque ? 1 : state.opacity;
     material.depthWrite = isFullyOpaque;
     mesh.visible = state.opacity > INVIS_THRESHOLD;
+
+    if (state.opacity > 0.3 && material.map) {
+      const halfW = mesh.scale.x / 2;
+      const halfH = mesh.scale.y / 2;
+      _projMin.set(position.x - halfW, position.y - halfH, position.z).project(camera);
+      _projMax.set(position.x + halfW, position.y + halfH, position.z).project(camera);
+      const w = clamp(_projMax.x, -1, 1) - clamp(_projMin.x, -1, 1);
+      const h = clamp(_projMax.y, -1, 1) - clamp(_projMin.y, -1, 1);
+      const coverage = (Math.abs(w) * Math.abs(h)) / 4;
+      if (coverage > 0.3 && coverage > focusRef.current.coverage) {
+        const color = getDominantColor(media, material.map);
+        if (color) {
+          focusRef.current.coverage = coverage;
+          focusRef.current.color = color;
+        }
+      }
+    }
   });
 
   // Calculate display scale from media dimensions (from manifest)
@@ -196,12 +221,14 @@ function Chunk({
   cz,
   media,
   cameraGridRef,
+  focusRef,
 }: {
   cx: number;
   cy: number;
   cz: number;
   media: MediaItem[];
   cameraGridRef: React.RefObject<CameraGridState>;
+  focusRef: React.RefObject<FocusState>;
 }) {
   const [planes, setPlanes] = React.useState<PlaneData[] | null>(null);
 
@@ -248,6 +275,7 @@ function Chunk({
             chunkCy={cy}
             chunkCz={cz}
             cameraGridRef={cameraGridRef}
+            focusRef={focusRef}
           />
         );
       })}
@@ -287,6 +315,35 @@ const createInitialState = (camZ: number): ControllerState => ({
   pendingChunk: null,
 });
 
+const WHITE = new THREE.Color("#ffffff");
+
+function BackgroundUpdater({ focusRef }: { focusRef: React.RefObject<FocusState> }) {
+  const scene = useThree((s) => s.scene);
+  const currentColor = React.useRef(new THREE.Color("#ffffff"));
+
+  useFrame(() => {
+    const focus = focusRef.current;
+    const cur = currentColor.current;
+
+    if (focus.coverage > 0.5) {
+      cur.lerp(focus.color, 0.05);
+    } else {
+      cur.lerp(WHITE, 0.05);
+    }
+
+    if (scene.background instanceof THREE.Color) {
+      scene.background.copy(cur);
+    }
+    if (scene.fog instanceof THREE.Fog) {
+      scene.fog.color.copy(cur);
+    }
+
+    focus.coverage = 0;
+  });
+
+  return null;
+}
+
 function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onTextureProgress?: (progress: number) => void }) {
   const { camera, gl } = useThree();
   const isTouchDevice = useIsTouchDevice();
@@ -294,6 +351,7 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
 
   const state = React.useRef<ControllerState>(createInitialState(INITIAL_CAMERA_Z));
   const cameraGridRef = React.useRef<CameraGridState>({ cx: 0, cy: 0, cz: 0, camZ: camera.position.z });
+  const focusRef = React.useRef<FocusState>({ coverage: 0, color: new THREE.Color("#ffffff") });
 
   const [chunks, setChunks] = React.useState<ChunkData[]>([]);
 
@@ -504,8 +562,17 @@ function SceneController({ media, onTextureProgress }: { media: MediaItem[]; onT
   return (
     <>
       {chunks.map((chunk) => (
-        <Chunk key={chunk.key} cx={chunk.cx} cy={chunk.cy} cz={chunk.cz} media={media} cameraGridRef={cameraGridRef} />
+        <Chunk
+          key={chunk.key}
+          cx={chunk.cx}
+          cy={chunk.cy}
+          cz={chunk.cz}
+          media={media}
+          cameraGridRef={cameraGridRef}
+          focusRef={focusRef}
+        />
       ))}
+      <BackgroundUpdater focusRef={focusRef} />
     </>
   );
 }
