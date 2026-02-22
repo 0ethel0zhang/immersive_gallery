@@ -1,17 +1,44 @@
-import { useCopilotChat } from "@copilotkit/react-core";
-import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
+import { useCopilotChatInternal } from "@copilotkit/react-core";
 import * as React from "react";
 import styles from "./style.module.css";
 
+const STORAGE_KEY = "copilotkit-messages";
+
 export function ChatPanel() {
-  const { visibleMessages, appendMessage, isLoading } = useCopilotChat();
+  const { sendMessage, isLoading, messages, setMessages } = useCopilotChatInternal();
   const [open, setOpen] = React.useState(false);
   const [input, setInput] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const restoredRef = React.useRef(false);
 
-  const textMessages = (visibleMessages ?? [])
-    .filter((msg): msg is TextMessage => msg.isTextMessage())
-    .filter((msg) => (msg.role === Role.User || msg.role === Role.Assistant) && msg.content.trim());
+  // Restore messages from localStorage on mount (AG-UI plain objects)
+  React.useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setMessages(parsed);
+      }
+    } catch {
+      // ignore corrupted storage
+    }
+  }, [setMessages]);
+
+  // Persist messages to localStorage when they change
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  // AG-UI messages use plain role strings, not class instances
+  const textMessages = messages.filter(
+    (msg) =>
+      (msg.role === "user" || msg.role === "assistant") && typeof msg.content === "string" && msg.content.trim() !== "",
+  );
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,7 +48,7 @@ export function ChatPanel() {
     const text = input.trim();
     if (!text || isLoading) return;
     setInput("");
-    appendMessage(new TextMessage({ content: text, role: Role.User }));
+    sendMessage({ id: crypto.randomUUID(), role: "user", content: text });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -47,8 +74,8 @@ export function ChatPanel() {
               </div>
             )}
             {textMessages.map((msg) => (
-              <div key={msg.id} className={msg.role === Role.User ? styles.userMsg : styles.assistantMsg}>
-                {msg.content}
+              <div key={msg.id} className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+                {String(msg.content)}
               </div>
             ))}
             {isLoading && (
