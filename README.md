@@ -14,7 +14,7 @@ _An infinite 3D canvas built with React Three Fiber for exploring and displaying
 - **Adaptive background** - Emojis and background colors change based on the picture in focus
 - **Live UI changes** - Copilotkit agent updates the UI on demand
 - **Immersive soundtrack** - Hope you like interstellar
-- **Local uploads&& - Visualize your pictures securely when you upload
+- **Local uploads** - Visualize your pictures securely when you upload
 
 ## Getting Started
 
