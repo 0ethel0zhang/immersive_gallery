@@ -11,9 +11,14 @@ _An infinite 3D canvas built with React Three Fiber for exploring and displaying
 - **Touch & mouse controls** - Drag to pan, pinch/scroll to zoom
 - **Keyboard navigation** - WASD to move, QE for up/down
 - **Progressive loading** - Textures load on-demand with progress tracking
-- **Live UI changes** - Copilot agent updates the UI on demand
+- **Adaptive background** - Emojis and background colors change based on the picture in focus
+- **Live UI changes** - Copilotkit agent updates the UI on demand
+- **Immersive soundtrack** - Hope you like interstellar
+- **Local uploads&& - Visualize your pictures securely when you upload
 
 ## Getting Started
+
+Visit https://kaleidoscopic-sorbet-75861e.netlify.app/
 
 ```bash
 npm install
