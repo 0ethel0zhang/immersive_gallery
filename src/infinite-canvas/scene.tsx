@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as React from "react";
 import * as THREE from "three";
 import { useEffects } from "~/src/copilot/effects-context";
-import type { FilterType } from "~/src/copilot/effects-store";
+import type { FilterType, PlaneFrame, PlaneOverlay } from "~/src/copilot/effects-store";
 import { useIsTouchDevice } from "~/src/use-is-touch-device";
 import { clamp, lerp } from "~/src/utils";
 import { FrameDecoration } from "./frame-decoration";
@@ -319,10 +319,13 @@ function MediaPlane({
     mesh.scale.copy(displayScale);
   }, [displayScale, texture, isReady]);
 
-  const frame = stateRef.current.frames.get(planeId) ?? stateRef.current.frames.get("__default__") ?? null;
-  const overlay = stateRef.current.overlays.get(planeId) ?? stateRef.current.overlays.get("__default__") ?? null;
-  // Reference revision to re-render when effects change
-  void revision;
+  const [frame, setFrame] = React.useState<PlaneFrame | null>(null);
+  const [overlay, setOverlay] = React.useState<PlaneOverlay | null>(null);
+
+  React.useEffect(() => {
+    setFrame(stateRef.current.frames.get(planeId) ?? stateRef.current.frames.get("__default__") ?? null);
+    setOverlay(stateRef.current.overlays.get(planeId) ?? stateRef.current.overlays.get("__default__") ?? null);
+  }, [revision, planeId, stateRef]);
 
 
   if (!texture || !isReady) {

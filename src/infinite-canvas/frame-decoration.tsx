@@ -3,16 +3,6 @@ import * as React from "react";
 import * as THREE from "three";
 import type { FrameStyle, PlaneFrame } from "~/src/copilot/effects-store";
 
-const materialCache = new Map<string, THREE.MeshBasicMaterial>();
-
-function getMaterial(color: string): THREE.MeshBasicMaterial {
-  let mat = materialCache.get(color);
-  if (!mat) {
-    mat = new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide });
-    materialCache.set(color, mat);
-  }
-  return mat;
-}
 
 /** Push a quad (2 triangles) into the vertex/index arrays. */
 function pushQuad(verts: number[], indices: number[], x0: number, y0: number, x1: number, y1: number, z: number) {
@@ -26,16 +16,18 @@ function buildFrameBorderGeometry(w: number, h: number, thickness: number, style
   const hh = h / 2;
   const verts: number[] = [];
   const indices: number[] = [];
+  // Small inset so frame inner edges overlap the artwork, eliminating the seam
+  const inset = thickness * 0.08;
 
-  // Outer border — 4 strips that sit OUTSIDE the artwork bounds
+  // Outer border — 4 strips that overlap the artwork edge by `inset`
   // Bottom strip
-  pushQuad(verts, indices, -hw - thickness, -hh - thickness, hw + thickness, -hh, 0);
+  pushQuad(verts, indices, -hw - thickness, -hh - thickness, hw + thickness, -hh + inset, 0);
   // Top strip
-  pushQuad(verts, indices, -hw - thickness, hh, hw + thickness, hh + thickness, 0);
+  pushQuad(verts, indices, -hw - thickness, hh - inset, hw + thickness, hh + thickness, 0);
   // Left strip
-  pushQuad(verts, indices, -hw - thickness, -hh, -hw, hh, 0);
+  pushQuad(verts, indices, -hw - thickness, -hh + inset, -hw + inset, hh - inset, 0);
   // Right strip
-  pushQuad(verts, indices, hw, -hh, hw + thickness, hh, 0);
+  pushQuad(verts, indices, hw - inset, -hh + inset, hw + thickness, hh - inset, 0);
 
   if (style === "double") {
     // Second inner border with a gap
@@ -95,13 +87,17 @@ export function FrameDecoration({
     [width, height, thickness, frame.style],
   );
 
-  const material = React.useMemo(() => getMaterial(frame.color), [frame.color]);
+  const material = React.useMemo(
+    () => new THREE.MeshBasicMaterial({ color: frame.color, transparent: true, side: THREE.DoubleSide, fog: false }),
+    [frame.color],
+  );
 
   React.useEffect(() => {
     return () => {
       geometry.dispose();
+      material.dispose();
     };
-  }, [geometry]);
+  }, [geometry, material]);
 
   useFrame(() => {
     if (meshRef.current) {
